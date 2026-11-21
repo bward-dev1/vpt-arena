@@ -204,6 +204,7 @@ class ArenaSimEnv:
         self.best_dist = self._goal_dist(info)
         self.cur_units = {k: 0 for k in CURRICULUM}
         self.ret = 0.0
+        self.decay_queue, self.last_block = [], None
         return obs["image"]
 
     def _goal_dist(self, info):
@@ -267,8 +268,17 @@ class ArenaSimEnv:
                     if gain > 0:
                         r += w["collect"] * rw * gain
                         self.cur_units[item] += gain
-        # death: health hits 0, or fell out of a sky arena, or respawned far away
+        # TNT Run: the block you stood on disappears a moment later
         p = position(info)
+        if t.decay_floor and p is not None and p[1] >= self.origin[1] - 0.5:
+            blk = (math.floor(p[0]), math.floor(p[2]))
+            if blk != self.last_block:
+                self.decay_queue.append((self.t + t.decay_floor, blk))
+                self.last_block = blk
+            while self.decay_queue and self.decay_queue[0][0] <= self.t:
+                _, (bx, bz) = self.decay_queue.pop(0)
+                self._cmd(f"/setblock {bx} {int(self.origin[1]) - 1} {bz} minecraft:cave_air")
+        # death: health hits 0, or fell out of a sky arena, or respawned far away
         settled = self.t > 10  # ignore position readings right after the arena build
         fell = settled and t.sky and p is not None and p[1] < self.origin[1] - 8
         respawned = settled and p is not None and t.sky and math.hypot(p[0] - self.origin[0], p[2] - self.origin[2]) > 60

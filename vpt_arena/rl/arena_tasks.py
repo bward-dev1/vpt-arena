@@ -74,6 +74,7 @@ class Task:
     sky: bool = True                    # arena in the sky (fall below origin - 8 = out)
     goal: tuple = None                  # (dx, dz) target for races and bridges, reached within 1.5 blocks
     target_blocks: tuple = ()           # mine_block targets (bed, wool, ...)
+    decay_floor: int = 0                # TNT Run: floor block under the player vanishes this many steps after they step on it
     w: dict = field(default_factory=dict)  # reward weights (below)
 
 
@@ -164,8 +165,8 @@ TASKS = {t.mode: t for t in [
       w=dict(progress=0.3, target=10.0, win=5.0)),
     T("spleef", BASE + platform(8, "snow_block", pit=True) + give("diamond_shovel"),
       [mob("zombie", 5, 0)], max_steps=1600, w=dict(collect=0.05, kill=10.0, damage_dealt=0.0, alive=0.002)),
-    T("tnt_run", BASE + platform(7, "sand", pit=True) + ["/effect give @p minecraft:speed 60 0 true"], [],
-      max_steps=1200, w=dict(alive=0.01, win=0.0, timeout=5.0)),
+    T("tnt_run", BASE + platform(9, "smooth_sandstone", pit=True) + ["/effect give @p minecraft:speed 60 0 true"], [],
+      max_steps=1200, decay_floor=8, w=dict(alive=0.01, win=0.0, timeout=5.0)),
     T("parkour_duel", BASE + platform(1, "quartz_block") + [
         f"/setblock ~{2 + 2 * i} ~-1 ~{(i % 3) - 1} minecraft:quartz_block" for i in range(10)] +
       ["/setblock ~22 ~-1 ~0 minecraft:gold_block"], [], goal=(22, 0), max_steps=1200,

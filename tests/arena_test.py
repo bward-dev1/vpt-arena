@@ -132,6 +132,15 @@ def main():
     assert d and inf.get("sim_error") and env.recoveries == 1 and not env.started
     env.reset()
 
+    # TNT Run removes the block you stood on a few steps later
+    sim = FakeSim()
+    env = ArenaSimEnv("tnt_run", sim=sim)
+    env.reset()
+    n0 = len(sim.env.cmds)
+    for _ in range(arena_tasks.TASKS["tnt_run"].decay_floor + 1):
+        env.step({})
+    assert any(c.startswith("/setblock") and c.endswith("cave_air") for c in sim.env.cmds[n0:]), sim.env.cmds[n0:]
+
     # timeout
     sim = FakeSim()
     env = ArenaSimEnv("tnt_run", sim=sim)
