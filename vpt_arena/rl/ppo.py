@@ -192,7 +192,10 @@ class PPO:
                 s0, n0 = self.env_steps, len(self.finished)
                 ti = time.time()
                 roll = self.collect()
+                t_mid = time.time()
                 st = self.update(roll)
+                st["sec_collect"] = round(t_mid - ti, 2)
+                st["sec_update"] = round(time.time() - t_mid, 2)
                 self.iter += 1
                 fin = self.finished[n0:] or self.finished[-20:]  # episodes that ended this iteration
                 self.finished = self.finished[-1000:]

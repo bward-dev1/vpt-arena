@@ -6,6 +6,17 @@ It's built on OpenAI's [Video PreTraining (VPT)](https://github.com/openai/Video
 
 Actions use VPT's recorder JSONL format, so recordings from other tools that write it can be used directly.
 
+Dashboard: https://vpt-arena.pages.dev
+
+## Cloud RL (running now)
+
+Reinforcement learning runs on free GitHub Actions runners (`.github/workflows/rl-round.yml`):
+
+- Each round has 12 workers, and each worker trains 2 of the 23 modes. Every worker runs two MineStudio simulators (Minecraft 1.16.5, CPU rendering under xvfb, about 20 fps each) and does PPO on the 1x policy, with a KL pull toward the round's starting weights.
+- Single-player has no second human, so opponents are armed mobs: zombies with swords and armour, skeletons, vindicators. Arenas are built in the sky over the void or lava, so knock-offs and bridging matter (`vpt_arena/rl/arena_tasks.py`).
+- After a round, the workers' policies are merged by federated averaging into release `round-N`. The merged policy is evaluated on all 23 modes with gameplay clips (`eval-round.yml`), and the next round starts from it.
+- The release `baseline` is the unmodified VPT foundation model on the same tasks, for comparison.
+
 ## Where it plays
 
 It's for your own server. Public servers like Hypixel ban bots, and nothing here deals with anti-cheat.
