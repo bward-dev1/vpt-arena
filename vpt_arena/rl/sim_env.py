@@ -150,7 +150,6 @@ class ArenaSimEnv:
             self.started = True
             # silence chat feedback and toasts first: VPT never saw them and they cover the view
             for c in ("/gamerule sendCommandFeedback false", "/gamerule announceAdvancements false",
-                      "/advancement grant @p everything", "/recipe give @p *",
                       "/gamerule doImmediateRespawn true", "/gamerule doMobSpawning false", "/gamerule doDaylightCycle false",
                       "/gamerule naturalRegeneration true", "/difficulty normal", "/time set day", "/weather clear 99999"):
                 self._cmd(c)
@@ -162,12 +161,11 @@ class ArenaSimEnv:
             z0 = 3000 + 160 * (self.episode // 50) + 4000 * (self.seed // 5)
             # Slow Falling while the arena is built: the player drops a little before the floor exists,
             # and /tp doesn't reset fall distance, which used to cost 5-12 HP on landing.
+            self._cmd("/effect give @p minecraft:luck 1 0 true")  # so the clear below always has something to clear
             self._cmd("/effect clear @p")
             self._cmd("/effect give @p minecraft:slow_falling 10 0 true")
             self._cmd(f"/tp @p {x0} {Y} {z0} -90 0")
             for c in t.setup:
-                if c.strip() == "/effect clear @p":
-                    continue  # would remove Slow Falling; effects were cleared above
                 self._cmd(absolutize(c, x0, Y, z0))
             self._idle(6)  # chunk + block updates
             self._cmd(f"/tp @p {x0} {Y} {z0} -90 0")  # back to the exact spot and facing
@@ -180,6 +178,8 @@ class ArenaSimEnv:
             cx, cz = self.rng.randint(-3000, 3000), self.rng.randint(-3000, 3000)
             self._cmd(f"/spreadplayers {cx} {cz} 0 40 false @p")
             self._idle(10)
+            self._cmd("/effect give @p minecraft:luck 1 0 true")
+            self._cmd("/effect clear @p")
             for c in t.setup:
                 self._cmd(c)
             self._cmd("/effect give @p minecraft:instant_health 1 3 true")
@@ -199,7 +199,7 @@ class ArenaSimEnv:
         self.t = 0
         self.prev = info
         self.kills0 = stat(info, "kill_entity", t.opponent_types)
-        self.n_opp = len(t.opponents)
+        self.n_opp = sum(1 for c in t.opponents if c.startswith("/summon"))
         self.targets0 = stat(info, "mine_block", t.target_blocks) if t.target_blocks else 0.0
         self.best_dist = self._goal_dist(info)
         self.cur_units = {k: 0 for k in CURRICULUM}

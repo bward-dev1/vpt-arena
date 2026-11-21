@@ -20,7 +20,7 @@ jobs:
       - name: Engine
         run: python -c "from minestudio.simulator.entry import check_engine; check_engine(skip_confirmation=True)"
       - name: Probe
-        run: xvfb-run -a -s "-screen 0 1024x768x24" python cloud/probe_arena.py duels_sword bedwars_solo parkour_duel
+        run: xvfb-run -a -s "-screen 0 1024x768x24" python cloud/probe_arena.py duels_uhc bedwars_doubles uhc
       - uses: actions/upload-artifact@v4
         if: always()
         with: {name: probe-arena, path: cloud_out}

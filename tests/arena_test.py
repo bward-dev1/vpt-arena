@@ -57,7 +57,7 @@ def main():
         "/fill 2990 199 3990 3010 199 4010 minecraft:stone"
     assert absolutize("/setblock ~18 ~ ~0 minecraft:red_bed[facing=east,part=foot]", 3000, 200, 4000).startswith(
         "/setblock 3018 200 4000 ")
-    assert "3007 201 4000 {PersistenceRequired" in absolutize(arena_tasks.mob("zombie", 7, 0, "iron_sword"), 3000, 200, 4000)
+    assert "3007 201 4000 {PersistenceRequired" in absolutize(arena_tasks.mob("zombie", 7, 0, "iron_sword")[0], 3000, 200, 4000)
     n = arena_tasks.check()
     print(f"{n} tasks, one per mode")
     # every task builds without errors
@@ -72,7 +72,7 @@ def main():
     sim = FakeSim()
     env = ArenaSimEnv("duels_sword", sim=sim)
     env.reset()
-    assert any(c.startswith("/summon minecraft:zombie") for c in sim.env.cmds)
+    assert any(c.startswith("/summon zombie") for c in sim.env.cmds)
     sim.script = [lambda i: i.update(damage_dealt=40.0), lambda i: i.update(kill_entity={"minecraft:zombie": 1})]
     _, r1, d1, _ = env.step({"attack": 1})
     _, r2, d2, inf = env.step({"attack": 1})

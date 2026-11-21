@@ -28,22 +28,33 @@ def give(*items):
     return out
 
 
+_MOB_ID = [0]
+
+
 def mob(kind, dx, dz, hand=None, tier=None, extra=""):
-    """A persistent armed mob at origin + (dx, 1, dz)."""
-    parts = ["PersistenceRequired:1b"]
+    """Commands for one persistent armed mob at origin + (dx, 1, dz).
+
+    Chat commands are cut at 256 characters, so armour goes on with separate /replaceitem
+    commands aimed at the mob's own tag instead of one long NBT blob.
+    """
+    _MOB_ID[0] += 1
+    tag = f"o{_MOB_ID[0]}"
+    parts = ["PersistenceRequired:1b", f'Tags:["{tag}"]']
     if hand:
-        parts.append(f'HandItems:[{{id:"minecraft:{hand}",Count:1b}},{{}}]')
-    if tier:
-        parts.append("ArmorItems:[" + ",".join(f'{{id:"minecraft:{tier}_{p}",Count:1b}}'
-                                                for p in ("boots", "leggings", "chestplate", "helmet")) + "]")
+        parts.append(f'HandItems:[{{id:"{hand}",Count:1b}},{{}}]')
     if extra:
         parts.append(extra)
-    return f"/summon minecraft:{kind} ~{{dx}} ~1 ~{{dz}} {{{','.join(parts)}}}".replace("{dx}", str(dx)).replace("{dz}", str(dz))
+    cmds = [f"/summon {kind} ~{dx} ~1 ~{dz} {{{','.join(parts)}}}"]
+    if tier:
+        for slot, piece in (("head", "helmet"), ("chest", "chestplate"), ("legs", "leggings"), ("feet", "boots")):
+            cmds.append(f"/replaceitem entity @e[tag={tag},limit=1] armor.{slot} {tier}_{piece}")
+    return cmds
 
 
 def platform(r, block="smooth_stone", pit=None):
     """Square floor of radius r at the origin; optional lava pit 6 below so falling is fatal and fast."""
-    cmds = [f"/fill ~-{r} ~-1 ~-{r} ~{r} ~-1 ~{r} minecraft:{block}", f"/fill ~-{r} ~ ~-{r} ~{r} ~4 ~{r} minecraft:air"]
+    # cave_air instead of air: filling air with air "fails" and prints a red error into the agent's view
+    cmds = [f"/fill ~-{r} ~-1 ~-{r} ~{r} ~-1 ~{r} minecraft:{block}", f"/fill ~-{r} ~ ~-{r} ~{r} ~4 ~{r} minecraft:cave_air"]
     if pit:
         cmds.insert(0, f"/fill ~-{r + 6} ~-7 ~-{r + 6} ~{r + 6} ~-7 ~{r + 6} minecraft:lava")
     return cmds
@@ -74,11 +85,15 @@ W = dict(damage_dealt=0.05, damage_taken=-0.05, kill=2.0, death=-5.0, win=10.0, 
 def T(mode, setup, opponents=(), **kw):
     w = dict(W)
     w.update(kw.pop("w", {}))
-    return Task(mode, list(setup), list(opponents), w=w, **kw)
+    flat = [c for o in opponents for c in (o if isinstance(o, list) else [o])]
+    return Task(mode, list(setup), flat, w=w, **kw)
 
 
-BASE = ["/clear @p", "/effect clear @p", "/effect give @p minecraft:instant_health 1 3 true",
-        "/effect give @p minecraft:saturation 1 10 true", "/kill @e[type=!player,distance=..80]"]
+# Every command here must succeed: failures print red text over the agent's view for ~10 s.
+# (sim_env clears effects itself before building.)
+KILL_MOBS = "/execute if entity @e[type=!player,distance=..80] run kill @e[type=!player,distance=..80]"
+BASE = ["/give @p stick", "/clear @p", "/effect give @p instant_health 1 3 true", "/effect give @p saturation 1 10 true",
+        KILL_MOBS]
 SWORD = give("iron_sword") + armour("iron")
 
 TASKS = {t.mode: t for t in [
@@ -114,7 +129,7 @@ TASKS = {t.mode: t for t in [
       w=dict(progress=0.3, target=15.0, win=5.0)),
     T("bedwars_doubles", BASE + platform(3, "white_wool") + island(18, 0, 3, "end_stone") +
       ["/setblock ~18 ~ ~0 minecraft:blue_bed[facing=east,part=foot]",
-       "/setblock ~19 ~ ~0 minecraft:blue_bed[facing=east,part=head]"] + give("iron_sword", "white_wool 64") + armour("chain"),
+       "/setblock ~19 ~ ~0 minecraft:blue_bed[facing=east,part=head]"] + give("iron_sword", "white_wool 64") + armour("chainmail"),
       [mob("zombie", 17, 2, "iron_sword", "chainmail"), mob("skeleton", 20, -2, "bow")], goal=(18, 0),
       target_blocks=("blue_bed",), max_steps=2400, w=dict(progress=0.3, target=15.0, win=5.0)),
     T("bedwars_squads", BASE + platform(3, "white_wool") + island(18, 0, 4, "end_stone") +
@@ -134,7 +149,7 @@ TASKS = {t.mode: t for t in [
       ["/setblock ~24 ~-1 ~0 minecraft:end_portal_frame"] + give("iron_sword", "blue_terracotta 64", "bow", "arrow 4"),
       [mob("zombie", 22, 0, "iron_sword", "leather")], goal=(24, 0), max_steps=2400,
       w=dict(progress=0.4, goal=10.0, win=0.0, kill=1.0)),
-    T("uhc", ["/gamerule naturalRegeneration false", "/time set 13000"] + BASE[:-1] + give("stone_sword", "bread 8"),
+    T("uhc", ["/gamerule naturalRegeneration false", "/time set 13000"] + BASE[:4] + give("stone_sword", "bread 8"),
       [mob("zombie", 6, 6, "stone_sword"), mob("skeleton", -8, 4, "bow")], sky=False, max_steps=3000,
       w=dict(collect=0.5, alive=0.002)),
     T("survival_games", BASE + give("stone_sword", "bow", "arrow 8") + armour("leather"),
@@ -162,4 +177,8 @@ def check():
     from .. import games
     missing = [m.key for m in games.MODES if m.key not in TASKS]
     assert not missing, f"no RL task for {missing}"
+    for t in TASKS.values():
+        for c in t.setup + t.opponents:
+            # absolute coordinates can add a few characters per number
+            assert len(c) + 30 <= 256, f"{t.mode}: command too long for chat ({len(c)}): {c[:60]}"
     return len(TASKS)
