@@ -121,7 +121,7 @@ export const Sees: React.FC<{P: any}> = ({P}) => {
           ) : null
         )}
       </div>
-      <div style={{position: 'absolute', left: pad, bottom: tall ? 120 : 70}}>
+      <div style={{position: 'absolute', left: pad, bottom: tall ? 170 : 130}}>
         <Keys size={tall ? 46 : 54} />
       </div>
       {[0, 1, 2, 3].map((i) => (

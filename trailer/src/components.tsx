@@ -201,9 +201,9 @@ export const Clip: React.FC<{
           style={{width: '100%', height: '100%', objectFit: 'cover', imageRendering: 'pixelated', filter: 'contrast(1.2) saturate(1.3) brightness(0.93) hue-rotate(-6deg)'}}
         />
       </div>
-      <div style={{position: 'absolute', inset: 0, background: `linear-gradient(160deg, rgba(124,196,160,0.24), rgba(8,11,15,0) 55%, rgba(126,168,240,0.16))`, mixBlendMode: 'screen'}} />
+      <div style={{position: 'absolute', inset: 0, background: `linear-gradient(160deg, rgba(124,196,160,0.14), rgba(8,11,15,0) 55%, rgba(126,168,240,0.1))`, mixBlendMode: 'screen'}} />
       <div style={{position: 'absolute', inset: 0, background: 'repeating-linear-gradient(0deg, rgba(0,0,0,0.26) 0px, rgba(0,0,0,0.26) 1px, transparent 1px, transparent 3px)'}} />
-      <div style={{position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.6) 100%)'}} />
+      <div style={{position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.5) 100%)'}} />
       <div style={{position: 'absolute', inset: 0, boxShadow: `inset 0 0 0 ${bw / 2}px rgba(124,196,160,0.45)`}} />
       {corner({left: 6, top: 6, borderLeftWidth: bw, borderTopWidth: bw})}
       {corner({right: 6, top: 6, borderRightWidth: bw, borderTopWidth: bw})}

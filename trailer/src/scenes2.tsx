@@ -153,12 +153,15 @@ export const Cloud: React.FC<{P: any}> = ({P}) => {
   const x0 = tall ? 60 : 140;
   const y0 = tall ? 430 : 300;
   const pos = (i: number) => ({x: x0 + (i % cols) * (cw + gx), y: y0 + Math.floor(i / cols) * (ch + gx)});
-  const gridBottom = y0 + 3 * (ch + gx);
+  const rowsN = Math.ceil(12 / cols);
+  const gridBottom = y0 + rowsN * (ch + gx);
+  const kk = tall ? 0.5 : 1;
+  const BK = BEAT * kk;
   const fx = tall ? 60 : 1240;
   const fy = tall ? gridBottom + 20 : 300;
   const fw = tall ? 960 : 540;
-  const showFed = t > BEAT * 12;
-  const showEval = t > BEAT * 14;
+  const showFed = t > BK * 12;
+  const showEval = t > BK * 14;
   return (
     <AbsoluteFill>
       <VoxelBG dim={0.7} />
@@ -167,8 +170,8 @@ export const Cloud: React.FC<{P: any}> = ({P}) => {
         <Slam at={BEAT} size={tall ? 28 : 32} mono color={C.accent} style={{marginTop: 14}}>12 workers a round / 2 modes each / free GitHub Actions</Slam>
       </div>
       {ws.slice(0, 12).map((w, i) => {
-        const on = t > BEAT * i;
-        const fresh = on ? pulse(t - BEAT * i, 3) : 0;
+        const on = t > BK * i;
+        const fresh = on ? pulse(t - BK * i, 3) : 0;
         const p = pos(i);
         return (
           <div
@@ -198,9 +201,9 @@ export const Cloud: React.FC<{P: any}> = ({P}) => {
           <div style={{fontFamily: F.mono, fontSize: 24, color: C.muted}}>win rate + gameplay clips, every round</div>
         </div>
       )}
-      {P.stats.steps > 0 && t > BEAT * 8 && (
+      {P.stats.steps > 0 && t > BK * 8 && (
         <div style={{position: 'absolute', left: fx, top: tall ? fy + 330 : fy + 360, width: fw}}>
-          <Count to={P.stats.steps} at={BEAT * 8} dur={2} size={tall ? 90 : 100} color={C.glow} />
+          <Count to={P.stats.steps} at={BK * 8} dur={tall ? 1.3 : 2} size={tall ? 90 : 100} color={C.glow} />
           <div style={{fontFamily: F.mono, fontSize: 24, color: C.muted}}>game steps trained so far, in MineStudio (Minecraft 1.16.5), against armed mobs in sky arenas</div>
         </div>
       )}
@@ -304,7 +307,7 @@ export const Finale: React.FC<{P: any; dur: number}> = ({P, dur}) => {
       {img && t >= (tall ? 0.3 : BAR) && (
         <div
           style={{
-            position: 'absolute', right: tall ? 90 : 100, top: tall ? 560 : 200, width: cw, height: chh,
+            position: 'absolute', right: tall ? 90 : 100, top: tall ? 650 : 200, width: cw, height: chh,
             border: `4px solid ${C.accent}`, boxShadow: `0 0 90px rgba(124,196,160,${0.3 + 0.2 * pulse(t, 4)})`, overflow: 'hidden',
             transform: `translateY(${(1 - easeOut((t - (tall ? 0.3 : BAR)) / 0.4)) * 60}px)`, opacity: easeOut((t - (tall ? 0.3 : BAR)) / 0.3),
           }}
@@ -319,7 +322,7 @@ export const Finale: React.FC<{P: any; dur: number}> = ({P, dur}) => {
         {t >= (tall ? 0.8 : BAR) && <Slam at={tall ? 0.8 : BAR} size={tall ? 36 : 36} mono color={C.muted}>{fmtInt(wins)} / {fmtInt(games)} baseline games</Slam>}
       </div>
       {t >= hitT && (
-        <div style={{position: 'absolute', left: tall ? 60 : 100, top: tall ? 1180 : 740, display: 'flex', flexDirection: 'column', gap: 18}}>
+        <div style={{position: 'absolute', left: tall ? 60 : 100, top: tall ? 1240 : 740, display: 'flex', flexDirection: 'column', gap: 18}}>
           <Slam at={hitT} size={tall ? 110 : 120} glow color={C.accent}>Watch it learn live.</Slam>
           <Slam at={hitT + BEAT} size={tall ? 44 : 48} mono color={C.text}>vpt-arena.vercel.app</Slam>
           <Slam at={hitT + BEAT * 2} size={tall ? 24 : 26} mono color={C.muted}>live training / live stream / simulation lab</Slam>
