@@ -31,9 +31,27 @@ LATEST = {"status": b'{"state":"offline"}', "frame": None}
 LOCK = threading.Lock()
 
 
+HLS_DIR = Path("live_hls")
+HLS_RE = re.compile(r"^/hls/(30|60)/([a-z0-9_]{1,40}\.(?:m3u8|ts))$")
+
+
 class H(BaseHTTPRequestHandler):
     def do_GET(self):
         p = self.path.split("?", 1)[0]
+        m = HLS_RE.match(p)
+        if m:
+            f = HLS_DIR / m.group(1) / m.group(2)
+            if not f.exists():
+                self.send_error(404)
+                return
+            body = f.read_bytes()
+            self.send_response(200)
+            self.send_header("content-type", "application/vnd.apple.mpegurl" if f.suffix == ".m3u8" else "video/mp2t")
+            self.send_header("cache-control", "no-store" if f.suffix == ".m3u8" else "max-age=60")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         with LOCK:
             body = LATEST["status"] if p == "/status.json" else LATEST["frame"] if p == "/frame.jpg" else None
         if body is None:
@@ -48,6 +66,38 @@ class H(BaseHTTPRequestHandler):
 
     def log_message(self, *a):
         pass
+
+
+FRAME_RGB = {"img": None}
+
+
+def encoder():
+    """Feed the newest 480x270 view at a steady 20 fps into ffmpeg, which writes 30 fps and 60 fps HLS
+    (2 s segments, frames blended in between) for the site's live video player."""
+    import numpy as np
+    for r in ("30", "60"):
+        (HLS_DIR / r).mkdir(parents=True, exist_ok=True)
+    common = ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p", "-g", "60",
+              "-sc_threshold", "0", "-f", "hls", "-hls_time", "2", "-hls_list_size", "6",
+              "-hls_flags", "delete_segments+independent_segments+omit_endlist"]
+    cmd = ["ffmpeg", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", "480x270", "-r", "20", "-i", "-",
+           "-filter_complex", "[0:v]split=2[a][b];[a]minterpolate=fps=30:mi_mode=blend[v30];[b]minterpolate=fps=60:mi_mode=blend[v60]",
+           "-map", "[v30]", *common, "-hls_segment_filename", str(HLS_DIR / "30" / "s_%05d.ts"), str(HLS_DIR / "30" / "index.m3u8"),
+           "-map", "[v60]", *common, "-hls_segment_filename", str(HLS_DIR / "60" / "s_%05d.ts"), str(HLS_DIR / "60" / "index.m3u8")]
+    blank = np.zeros((270, 480, 3), np.uint8)
+    while True:
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+        nxt = time.time()
+        try:
+            while proc.poll() is None:
+                img = FRAME_RGB["img"]
+                proc.stdin.write((img if img is not None else blank).tobytes())
+                nxt += 0.05
+                time.sleep(max(0.0, nxt - time.time()))
+        except (BrokenPipeError, OSError):
+            pass
+        print("encoder restarted", flush=True)
+        time.sleep(2)
 
 
 def tunnel(port, out):
@@ -75,6 +125,7 @@ def main():
     srv = ThreadingHTTPServer(("127.0.0.1", args.port), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     threading.Thread(target=tunnel, args=(args.port, out), daemon=True).start()
+    threading.Thread(target=encoder, daemon=True).start()
     modes = [m for m in TASKS if TASKS[m].sky] + ["survival"]
     random.seed(int(time.time()))
     env, agent = None, ArenaAgent("1x", args.weights, "duels_sword", device="cpu")
@@ -94,13 +145,16 @@ def main():
             frame, r, done, info = env.step(a)
             ret += r
             n += 1
+            if getattr(env, "last_pov", None) is not None:
+                FRAME_RGB["img"] = cv2.resize(env.last_pov, (480, 270), interpolation=cv2.INTER_AREA)
             now = time.time()
             if now - last_push >= 1.0 or done:
                 last_push = now
                 st = {"state": "playing", "mode": mode, "mode_name": games.get(mode).name, "checkpoint": args.tag,
                       "server": "cloud arena (MineStudio 1.16.5)", "fps": round(n / max(1e-6, now - t0), 1),
                       "updated": now, "last_action": env_action_summary(a),
-                      "episode": {"t": round(n / 20, 1), "return": round(ret, 2)}, "source": "cloud"}
+                      "episode": {"t": round(n / 20, 1), "return": round(ret, 2)}, "source": "cloud",
+                      "hls": {"30": "/live/hls/30/index.m3u8", "60": "/live/hls/60/index.m3u8"}}
                 jpg = None
                 if getattr(env, "last_pov", None) is not None:
                     img = cv2.resize(env.last_pov, (384, 216), interpolation=cv2.INTER_AREA)
