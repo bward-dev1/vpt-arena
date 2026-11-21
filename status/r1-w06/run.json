@@ -1,0 +1,1 @@
+{"kind": "rl", "arch": "1x", "started": 1795300197.1769702, "args": {"modes": ["bedwars_solo", "bedwars_doubles"], "round": 1, "T": 40, "lr": 2e-05, "kl_coef": 0.1, "minutes": 150.0, "platform": "github-actions", "difficulty": 0.44999999999999996}}
