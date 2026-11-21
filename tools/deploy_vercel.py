@@ -31,6 +31,8 @@ VERCEL_JSON = {
         {"source": "/live/:path*", "destination": f"{BACKEND}/live/:path*"},
         {"source": "/trailer.mp4", "destination": f"{BACKEND}/trailer.mp4"},
         {"source": "/trailer-vertical.mp4", "destination": f"{BACKEND}/trailer-vertical.mp4"},
+        {"source": "/trailer-60.mp4", "destination": f"{BACKEND}/trailer-60.mp4"},
+        {"source": "/clips60/:path*", "destination": f"{BACKEND}/clips60/:path*"},
     ],
     "headers": [
         {"source": "/(.*)\\.(js|css)", "headers": [{"key": "cache-control", "value": "public, max-age=300"}]},
