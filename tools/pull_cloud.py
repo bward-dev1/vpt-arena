@@ -77,10 +77,49 @@ def main():
                "started": r["createdAt"], "updated": None, "progress": r.get("conclusion") or r["status"], "run": None}
               for r in runs[:3]]
     out = {"updated": time.time(), "jobs": rounds + sorted(jobs, key=lambda j: j["name"]), "releases": rels}
+    build_league(rels)
     tmp = RUNS / "cloud_status.json.tmp"
     tmp.write_text(json.dumps(out, indent=1))
     tmp.replace(RUNS / "cloud_status.json")
     print(f"{len(jobs)} worker statuses, {len(rounds)} rounds, releases: {rels}")
+
+
+def build_league(rels):
+    """Eval results on releases (eval.json) -> runs/league.json, rated against the fixed arena bots (Elo 1000)."""
+    import math
+    cache = RUNS / ".eval-cache"
+    cache.mkdir(exist_ok=True)
+    players, matches = {}, []
+    for tag in rels:
+        f = cache / f"{tag}.json"
+        if not f.exists():
+            r = subprocess.run(["gh", "release", "download", tag, "-R", REPO, "-p", "eval.json", "-O", str(f)],
+                               capture_output=True, text=True, timeout=120)
+            if r.returncode != 0:
+                continue
+        try:
+            ev = json.loads(f.read_text())
+        except json.JSONDecodeError:
+            continue
+        by_mode, games_n, wins_n = {}, 0, 0
+        for mode, m in ev.get("modes", {}).items():
+            n = int(m.get("episodes", 0))
+            w = round(float(m.get("win_rate", 0)) * n)
+            p = (w + 0.5) / (n + 1)
+            by_mode[mode] = round(1000 + 400 * math.log10(p / (1 - p)), 1)
+            games_n += n
+            wins_n += w
+            matches.append({"t": f.stat().st_mtime, "mode": mode, "a": tag, "b": "arena-bots",
+                            "winner": tag if w * 2 > n else ("arena-bots" if w * 2 < n else None),
+                            "score": f"{w}/{n} wins, return {m.get('return', 0):.1f}"})
+        if by_mode:
+            players[tag] = {"elo": round(sum(by_mode.values()) / len(by_mode), 1), "games": games_n, "wins": wins_n,
+                            "kind": "checkpoint", "by_mode": by_mode}
+    if players:
+        players["arena-bots"] = {"elo": 1000.0, "games": sum(p["games"] for p in players.values()),
+                                 "wins": sum(p["games"] - p["wins"] for p in players.values()), "kind": "scripted",
+                                 "by_mode": {}}
+        (RUNS / "league.json").write_text(json.dumps({"players": players, "matches": matches[-500:]}, indent=1))
 
 
 if __name__ == "__main__":

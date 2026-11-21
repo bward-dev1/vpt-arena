@@ -89,6 +89,8 @@ jobs:
         run: |
           TAG=round-${{ inputs.round }}
           gh release create "$TAG" global.weights summary.json --title "RL round ${{ inputs.round }}" --notes "Merged policy after RL round ${{ inputs.round }} (all modes)." --prerelease
+      - name: Evaluate this round
+        run: gh workflow run eval-round.yml -f tag=round-${{ inputs.round }} -f episodes=3
       - name: Next round
         run: |
           N=$(( ${{ inputs.round }} + 1 ))

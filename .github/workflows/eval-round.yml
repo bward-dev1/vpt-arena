@@ -1,0 +1,75 @@
+name: eval-round
+# Evaluate a policy (a round release, or the VPT foundation baseline) on all 23 modes; results go on the release.
+on:
+  workflow_dispatch:
+    inputs:
+      tag: {description: "release tag with global.weights, or 'baseline' for VPT foundation 1x", default: "baseline"}
+      episodes: {description: "episodes per mode", default: "3"}
+permissions:
+  contents: write
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        modes:
+          - "survival,duels_sword,duels_classic,duels_uhc,duels_nodebuff,duels_sumo"
+          - "duels_boxing,duels_bow,duels_combo,build_uhc,bedwars_solo,bedwars_doubles"
+          - "bedwars_squads,skywars_solo,skywars_doubles,the_bridge,uhc,survival_games"
+          - "kitpvp,capture_the_wool,spleef,tnt_run,parkour_duel"
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.10"}
+      - name: System packages
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q openjdk-8-jdk xvfb mesa-utils libegl1 libgl1-mesa-dri libglu1-mesa-dev libgl1-mesa-dev
+          echo "JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64" >> $GITHUB_ENV
+          echo "/usr/lib/jvm/java-8-openjdk-amd64/bin" >> $GITHUB_PATH
+      - name: Python packages
+        run: |
+          pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -q minestudio attrs psutil "numpy<2"
+      - name: Engine
+        run: python -c "from minestudio.simulator.entry import check_engine; check_engine(skip_confirmation=True)"
+      - name: Weights
+        run: |
+          mkdir -p w
+          if [ "${{ inputs.tag }}" = "baseline" ]; then
+            curl -sfL -o w/global.weights https://openaipublic.blob.core.windows.net/minecraft-rl/models/foundation-model-1x.weights
+          else
+            gh release download "${{ inputs.tag }}" -p global.weights -D w
+          fi
+      - name: Evaluate
+        run: xvfb-run -a -s "-screen 0 1024x768x24" python cloud/eval_job.py --weights w/global.weights --name "${{ inputs.tag }}" --modes "${{ matrix.modes }}" --episodes "${{ inputs.episodes }}" --out eval
+      - uses: actions/upload-artifact@v4
+        with: {name: "eval-${{ strategy.job-index }}", path: eval}
+  publish:
+    needs: eval
+    if: always()
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {path: art}
+      - name: Merge and attach
+        run: |
+          python3 - <<'EOF'
+          import json, glob
+          res = {"name": "${{ inputs.tag }}", "modes": {}}
+          for f in glob.glob("art/**/*.json", recursive=True):
+              res["modes"].update(json.load(open(f))["modes"])
+          json.dump(res, open("eval.json", "w"), indent=1)
+          print(len(res["modes"]), "modes evaluated")
+          EOF
+          TAG="${{ inputs.tag }}"
+          if [ "$TAG" = "baseline" ]; then
+            gh release view baseline >/dev/null 2>&1 || gh release create baseline --title "Baseline: VPT foundation 1x" --notes "Evaluation of the unmodified VPT foundation 1x model on all modes." --prerelease
+          fi
+          gh release upload "$TAG" eval.json --clobber
