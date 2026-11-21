@@ -41,7 +41,7 @@ def masked_entropy(policy, pd, buttons, cam_off):
 class PPO:
     def __init__(self, policy, envs, modes, prior=None, device="cpu", T=64, lr=2e-5, clip=0.2, vf_coef=0.5,
                  ent_coef=0.0, kl_coef=0.2, kl_decay=0.9995, gamma=0.999, lam=0.95, epochs=2, minibatches=1,
-                 max_grad=1.0, vf_warmup=0, run=None):
+                 max_grad=1.0, vf_warmup=0, run=None, parallel_envs=True):
         self.policy, self.prior, self.envs = policy, prior, envs
         self.device = th.device(device)
         self.N, self.T = len(envs), T
@@ -63,6 +63,9 @@ class PPO:
         self.finished = []  # (mode, return, length, won), last 1000 episodes
         self.iter, self.env_steps = 0, 0
         self.run = Path(run) if run else None
+        # step envs in parallel threads (simulators wait on sockets / subprocesses, which releases the GIL)
+        from concurrent.futures import ThreadPoolExecutor
+        self.pool = ThreadPoolExecutor(max_workers=self.N) if parallel_envs and self.N > 1 else None
         if self.run:
             self.run.mkdir(parents=True, exist_ok=True)
 
@@ -87,16 +90,23 @@ class PPO:
             actions = self.codec.tokens_to_env({k: v.cpu().numpy() for k, v in tok.items()})
             rew, done = np.zeros(N, np.float32), np.zeros(N, bool)
             nxt = np.empty_like(self.obs)
-            for i, (env, a) in enumerate(zip(self.envs, actions)):
+            def run(i):
+                env, a = self.envs[i], actions[i]
                 frame, r, d, info = env.step(a)
+                if d:
+                    ep = (self.modes[i], float(self.ep_ret[i] + r), int(self.ep_len[i] + 1), bool(info.get("won", False)))
+                    frame = env.reset()
+                    return frame, r, d, ep
+                return frame, r, d, None
+
+            results = list(self.pool.map(run, range(N))) if self.pool else [run(i) for i in range(N)]
+            for i, (frame, r, d, ep) in enumerate(results):
                 rew[i], done[i] = r, d
                 self.ep_ret[i] += r
                 self.ep_len[i] += 1
-                if d:
-                    self.finished.append((self.modes[i], float(self.ep_ret[i]), int(self.ep_len[i]),
-                                          bool(info.get("won", False))))
+                if ep is not None:
+                    self.finished.append(ep)
                     self.ep_ret[i], self.ep_len[i] = 0, 0
-                    frame = env.reset()
                 nxt[i] = resize_frame(frame)
             for k, v in (("img", self.obs), ("first", self.first), ("buttons", tok["buttons"].cpu().numpy()),
                          ("camera", tok["camera"].cpu().numpy()), ("logp", lp.cpu().numpy()),
