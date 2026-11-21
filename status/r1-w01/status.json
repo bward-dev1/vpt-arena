@@ -1,0 +1,1 @@
+{"job": "r1-w01", "state": "running", "round": 1, "modes": ["duels_sword", "duels_classic"], "started": 1795300115.812948, "iter": 8, "env_steps": 640, "fps": 5.3, "per_mode": {"duels_sword": {"episodes": 1, "return": -5.0, "win_rate": 0.0}, "duels_classic": {"episodes": 1, "return": -5.18899995, "win_rate": 0.0}}, "minutes_left": 145.3, "updated": 1795300395.1683726}
