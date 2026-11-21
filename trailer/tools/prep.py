@@ -25,7 +25,7 @@ os.makedirs(f"{PUB}/shots", exist_ok=True)
 data = requests.get(f"{SITE}/data.json", timeout=60).json()
 json.dump(data, open("trailer/data.json", "w"))
 mode_ids = data["rounds"]["modes"]
-names = {c["mode"]: c["name"] for c in data["cloud"].get("clips", [])}
+names = {c["mode"]: c["name"] for c in data.get("overview", {}).get("clips", []) if isinstance(c, dict)}
 rounds = []
 for r in data["rounds"]["rounds"]:
     ms = r.get("modes", {})
