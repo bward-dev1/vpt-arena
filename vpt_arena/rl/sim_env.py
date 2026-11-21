@@ -150,6 +150,7 @@ class ArenaSimEnv:
             self.started = True
             # silence chat feedback and toasts first: VPT never saw them and they cover the view
             for c in ("/gamerule sendCommandFeedback false", "/gamerule announceAdvancements false",
+                      "/gamerule showDeathMessages false",
                       "/gamerule doImmediateRespawn true", "/gamerule doMobSpawning false", "/gamerule doDaylightCycle false",
                       "/gamerule naturalRegeneration true", "/difficulty normal", "/time set day", "/weather clear 99999"):
                 self._cmd(c)
