@@ -58,6 +58,7 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--max-minutes", type=float, default=80)
     ap.add_argument("--clips", default=None, help="directory for one H.264 clip per mode (first episode)")
+    ap.add_argument("--difficulty", type=float, default=0.5, help="fixed opponent strength so rounds compare fairly")
     args = ap.parse_args()
     th.set_num_threads(3)
     out = Path(args.out)
@@ -69,7 +70,7 @@ def main():
     t0 = time.time()
     for m in modes:
         if env is None:
-            env = ArenaSimEnv(m, seed=123)
+            env = ArenaSimEnv(m, seed=123, difficulty=args.difficulty)
         else:
             env.task, env.mode = TASKS[m], m
         agent.set_mode(m)

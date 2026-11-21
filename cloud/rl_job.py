@@ -43,6 +43,7 @@ def main():
     ap.add_argument("--kl-coef", type=float, default=0.1)
     ap.add_argument("--threads", type=int, default=2)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--difficulty", type=float, default=None, help="opponent strength 0..1 (default: ramps with round)")
     args = ap.parse_args()
     th.set_num_threads(args.threads)
     out = Path(args.out)
@@ -52,7 +53,8 @@ def main():
     t_start = time.time()
     (out / "run.json").write_text(json.dumps({"kind": "rl", "arch": args.arch, "started": t_start, "args": {
         "modes": modes, "round": args.round, "T": args.T, "lr": args.lr, "kl_coef": args.kl_coef,
-        "minutes": args.minutes, "platform": "github-actions"}}))
+        "minutes": args.minutes, "platform": "github-actions",
+        "difficulty": args.difficulty if args.difficulty is not None else min(1.0, 0.3 + 0.15 * args.round)}}))
     write_status(out, job=job, state="starting", round=args.round, modes=modes, started=t_start, iter=0)
 
     try:
@@ -68,7 +70,8 @@ def run_job(args, out, job, modes, t_start):
     envs = []
     for i, m in enumerate(modes):
         t0 = time.time()
-        envs.append(ArenaSimEnv(m, seed=args.seed * 10 + i))
+        diff = args.difficulty if args.difficulty is not None else min(1.0, 0.3 + 0.15 * args.round)
+        envs.append(ArenaSimEnv(m, seed=args.seed * 10 + i, difficulty=diff))
         print(f"sim for {m} created in {time.time() - t0:.0f} s", flush=True)
 
     policy = build_policy(args.arch)

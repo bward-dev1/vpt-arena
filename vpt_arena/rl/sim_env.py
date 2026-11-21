@@ -84,7 +84,7 @@ def health(info):
 
 
 class ArenaSimEnv:
-    def __init__(self, mode, seed=0, sim=None, obs_size=(128, 128)):
+    def __init__(self, mode, seed=0, sim=None, obs_size=(128, 128), difficulty=1.0):
         self.task = TASKS[mode]
         self.mode = mode
         self.rng = random.Random(seed)
@@ -93,6 +93,7 @@ class ArenaSimEnv:
         self.own_sim = sim is None
         self.sim = sim if sim is not None else self._new_sim()
         self.recoveries = 0
+        self.difficulty = float(difficulty)
         self.started = False
         self.episode = 0
         self.noop = None
@@ -113,6 +114,27 @@ class ArenaSimEnv:
             self.sim = self._new_sim()
         self.started = False
         self.noop = None
+
+    def _opponents(self):
+        """Opponent commands at the current difficulty (0..1): lower difficulty drops armour pieces
+        and swaps weapons down a tier, so early rounds can actually win fights."""
+        d = self.difficulty
+        if d >= 1.0:
+            return list(self.task.opponents)
+        down = {"diamond_sword": "iron_sword", "iron_sword": "stone_sword", "stone_sword": "wooden_sword",
+                "iron_axe": "stone_axe"}
+        out = []
+        for c in self.task.opponents:
+            if c.startswith("/replaceitem") and " armor." in c:
+                if self.rng.random() > d:
+                    continue
+            elif c.startswith("/summon") and d < 0.6:
+                for a, b in down.items():
+                    if f'"{a}"' in c:
+                        c = c.replace(f'"{a}"', f'"{b}"')
+                        break
+            out.append(c)
+        return out
 
     # ------------------------------------------------------------------ helpers
     def _cmd(self, c):
@@ -173,7 +195,7 @@ class ArenaSimEnv:
             self._idle(3)
             self._cmd("/effect clear @p minecraft:slow_falling")
             self._cmd("/effect give @p minecraft:instant_health 1 3 true")
-            for c in t.opponents:
+            for c in self._opponents():
                 self._cmd(absolutize(c, x0, Y, z0))
         else:
             cx, cz = self.rng.randint(-3000, 3000), self.rng.randint(-3000, 3000)
@@ -184,7 +206,7 @@ class ArenaSimEnv:
             for c in t.setup:
                 self._cmd(c)
             self._cmd("/effect give @p minecraft:instant_health 1 3 true")
-            for c in t.opponents:
+            for c in self._opponents():
                 self._cmd(c)
         obs, info = self._idle(4)
         if t.sky:

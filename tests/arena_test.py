@@ -141,6 +141,13 @@ def main():
         env.step({})
     assert any(c.startswith("/setblock") and c.endswith("cave_air") for c in sim.env.cmds[n0:]), sim.env.cmds[n0:]
 
+    # difficulty curriculum: weaker opponents at low difficulty
+    easy = ArenaSimEnv("duels_uhc", sim=FakeSim(), difficulty=0.0)
+    cmds = easy._opponents()
+    assert not any(c.startswith("/replaceitem") for c in cmds) and '"iron_sword"' in cmds[0], cmds[0]
+    full = ArenaSimEnv("duels_uhc", sim=FakeSim(), difficulty=1.0)
+    assert full._opponents() == arena_tasks.TASKS["duels_uhc"].opponents
+
     # timeout
     sim = FakeSim()
     env = ArenaSimEnv("tnt_run", sim=sim)
