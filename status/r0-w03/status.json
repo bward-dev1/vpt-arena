@@ -1,1 +1,1 @@
-{"job": "r0-w03", "state": "running", "round": 0, "modes": ["duels_sumo", "duels_boxing"], "started": 1795289632.9044244, "iter": 623, "env_steps": 49840, "fps": 7.6, "per_mode": {"duels_sumo": {"episodes": 27, "return": -4.777777777777778, "win_rate": 0.0}, "duels_boxing": {"episodes": 23, "return": -5.295652155652174, "win_rate": 0.0}}, "minutes_left": 3.2, "updated": 1795298440.6680157}
+{"job": "r0-w03", "state": "finished", "round": 0, "modes": ["duels_sumo", "duels_boxing"], "started": 1795289632.9044244, "iter": 638, "env_steps": 51040, "updated": 1795298646.7282438}
