@@ -52,6 +52,12 @@ class FakeSim:
 
 
 def main():
+    from vpt_arena.rl.sim_env import absolutize
+    assert absolutize("/fill ~-10 ~-1 ~-10 ~10 ~-1 ~10 minecraft:stone", 3000, 200, 4000) == \
+        "/fill 2990 199 3990 3010 199 4010 minecraft:stone"
+    assert absolutize("/setblock ~18 ~ ~0 minecraft:red_bed[facing=east,part=foot]", 3000, 200, 4000).startswith(
+        "/setblock 3018 200 4000 ")
+    assert "3007 201 4000 {PersistenceRequired" in absolutize(arena_tasks.mob("zombie", 7, 0, "iron_sword"), 3000, 200, 4000)
     n = arena_tasks.check()
     print(f"{n} tasks, one per mode")
     # every task builds without errors

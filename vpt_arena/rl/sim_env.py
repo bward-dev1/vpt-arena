@@ -23,6 +23,23 @@ CURRICULUM = {
 }
 
 
+_REL = __import__("re").compile(r"~(-?\d+(?:\.\d+)?)?")
+
+
+def absolutize(cmd, x0, y0, z0):
+    """Turn relative ~ coordinates into absolute ones around (x0, y0, z0); the k-th ~ is axis k % 3."""
+    base = (x0, y0, z0)
+    count = [0]
+
+    def sub(m):
+        axis = count[0] % 3
+        count[0] += 1
+        off = float(m.group(1)) if m.group(1) else 0.0
+        v = base[axis] + off
+        return str(int(v)) if float(v).is_integer() else f"{v:.2f}"
+    return _REL.sub(sub, cmd)
+
+
 def _num(v):
     if v is None:
         return 0.0
@@ -144,17 +161,23 @@ class ArenaSimEnv:
             x0 = 3000 + 160 * (self.episode % 50) + 4000 * (self.seed % 5)
             z0 = 3000 + 160 * (self.episode // 50) + 4000 * (self.seed // 5)
             self._cmd(f"/tp @p {x0} {Y} {z0} -90 0")
-            self._idle(12)  # let the chunks load before /fill
+            # build at absolute coordinates straight away, so the player can't fall before the floor exists
+            for c in t.setup:
+                self._cmd(absolutize(c, x0, Y, z0))
+            self._idle(6)  # chunk + block updates
+            self._cmd(f"/tp @p {x0} {Y} {z0} -90 0")  # back to the exact spot and facing; resets fall distance
+            self._cmd("/effect give @p minecraft:instant_health 1 3 true")
+            for c in t.opponents:
+                self._cmd(absolutize(c, x0, Y, z0))
         else:
             cx, cz = self.rng.randint(-3000, 3000), self.rng.randint(-3000, 3000)
             self._cmd(f"/spreadplayers {cx} {cz} 0 40 false @p")
             self._idle(10)
-        for c in t.setup:
-            self._cmd(c)
-        if t.sky:
-            self._cmd(f"/tp @p {x0} {Y} {z0} -90 0")
-        for c in t.opponents:
-            self._cmd(c)
+            for c in t.setup:
+                self._cmd(c)
+            self._cmd("/effect give @p minecraft:instant_health 1 3 true")
+            for c in t.opponents:
+                self._cmd(c)
         obs, info = self._idle(4)
         if t.sky:
             # info can lag a teleport by a few frames; wait until it reports the arena

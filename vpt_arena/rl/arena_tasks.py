@@ -77,7 +77,7 @@ def T(mode, setup, opponents=(), **kw):
     return Task(mode, list(setup), list(opponents), w=w, **kw)
 
 
-BASE = ["/clear @p", "/effect clear @p", "/effect give @p minecraft:instant_health 1 10 true",
+BASE = ["/clear @p", "/effect clear @p", "/effect give @p minecraft:instant_health 1 3 true",
         "/effect give @p minecraft:saturation 1 10 true", "/kill @e[type=!player,distance=..80]"]
 SWORD = give("iron_sword") + armour("iron")
 
