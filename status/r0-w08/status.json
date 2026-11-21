@@ -1,0 +1,1 @@
+{"job": "r0-w08", "state": "running", "round": 0, "modes": ["skywars_solo", "skywars_doubles"], "started": 1795289637.2669702, "iter": 7, "env_steps": 560, "fps": 4.2, "per_mode": {"skywars_solo": {"episodes": 1, "return": -3.504933120334072, "win_rate": 0.0}}, "minutes_left": 145.3, "updated": 1795289921.8394449}
