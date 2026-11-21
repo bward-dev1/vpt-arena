@@ -38,7 +38,7 @@ Music is 128 BPM in 4/4. One beat = 0.46875 s, one bar = 1.875 s. 40 bars = exac
 
 ## Colour
 
-The dashboard's own tokens, so the trailer and site look like one product: background `#080b0f`, panels `#121720`, lines `#232b38`, text `#e8ecf2`, muted `#9aa5b5`, accent green `#7cc4a0`, accent blue `#7ea8f0`. One extra: glow `#b8ffd9` for flashes. Red `#ec7b7b` is used for exactly one thing: zero wins. Green = the agent/system, red = the baseline's zero, so the meaning of colour never changes.
+The site's accent green and blue, on a dark ground for the launch-trailer look (the site itself has moved to a light theme; its screenshots appear in the trailer as bright cards on the dark scene, which makes them pop): background `#080b0f`, panels `#121720`, lines `#232b38`, text `#e8ecf2`, muted `#9aa5b5`, accent green `#7cc4a0`, accent blue `#7ea8f0`. One extra: glow `#b8ffd9` for flashes. Red `#ec7b7b` is used for exactly one thing: zero wins. Green = the agent/system, red = the baseline's zero, so the meaning of colour never changes.
 
 ## Voxel / grid motif
 
