@@ -106,6 +106,9 @@ def load_weights(model, path, device="cpu"):
     sd = th.load(path, map_location=device, weights_only=True)
     if isinstance(sd, dict) and "policy" in sd and isinstance(sd["policy"], dict):
         sd = sd["policy"]
+    if not any("diff_obs_process" in k for k in model.state_dict()):
+        # an unconditioned model (e.g. the KL prior) loading a conditioned checkpoint: drop the conditioner
+        sd = {k: v for k, v in sd.items() if "diff_obs_process" not in k}
     missing, unexpected = model.load_state_dict(sd, strict=False)
     # The conditioner is ours and absent from OpenAI's files; anything else missing is a real mismatch.
     real_missing = [k for k in missing if "diff_obs_process" not in k]

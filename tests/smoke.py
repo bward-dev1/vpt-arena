@@ -144,6 +144,9 @@ def main():
         check("BC ran 3 steps, finite loss", len(logs) == 3 and all(np.isfinite(r["nll"]) for r in logs),
               f"nll {logs[0]['nll']:.2f} -> {logs[-1]['nll']:.2f}")
         check("checkpoint saved", (run / "latest.pt").exists() and (run / "policy.weights").exists())
+        from vpt_arena.vpt import load_weights
+        load_weights(build_policy("1x", conditioned=False, net_overrides=TINY), run / "policy.weights")
+        check("unconditioned prior loads a conditioned checkpoint", True)
         args[args.index("--steps") + 1] = "5"
         train_bc.main(args)
         logs = [json.loads(l) for l in (run / "log.jsonl").read_text().splitlines()]
