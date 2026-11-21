@@ -1,1 +1,1 @@
-{"job": "r1-w04", "state": "running", "round": 1, "modes": ["duels_bow", "duels_combo"], "started": 1795299917.250338, "iter": 6, "env_steps": 480, "fps": 3.8, "per_mode": {}, "minutes_left": 145.4, "updated": 1795300196.0662408}
+{"job": "r1-w04", "state": "running", "round": 1, "modes": ["duels_bow", "duels_combo"], "started": 1795299917.250338, "iter": 20, "env_steps": 1600, "fps": 4.1, "per_mode": {}, "minutes_left": 140.0, "updated": 1795300515.5153966}
