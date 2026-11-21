@@ -122,6 +122,13 @@ def default_device():
     return "cpu"
 
 
+# VPT's torch_util picks "cuda" whenever torch was *built* with CUDA, even with no GPU present,
+# and creates the transformer memory there. Point it at a device that exists. States are moved
+# to the policy's device by callers anyway, so cpu is a safe default.
+import lib.torch_util as _tu  # noqa: E402
+_tu.set_default_torch_device("cuda" if th.cuda.is_available() else "cpu")
+
+
 # --------------------------------------------------------------------------- actions
 
 KEYBOARD_BUTTON_MAPPING = {  # recorder key name -> env button (from VPT's run_inverse_dynamics_model.py)

@@ -39,7 +39,7 @@ def main():
     ap.add_argument("--job", default=None)
     ap.add_argument("--round", type=int, default=0)
     ap.add_argument("--T", type=int, default=40)
-    ap.add_argument("--lr", type=float, default=1e-5)
+    ap.add_argument("--lr", type=float, default=2e-5)
     ap.add_argument("--kl-coef", type=float, default=0.1)
     ap.add_argument("--threads", type=int, default=2)
     ap.add_argument("--seed", type=int, default=0)
@@ -55,6 +55,15 @@ def main():
         "minutes": args.minutes, "platform": "github-actions"}}))
     write_status(out, job=job, state="starting", round=args.round, modes=modes, started=t_start, iter=0)
 
+    try:
+        run_job(args, out, job, modes, t_start)
+    except BaseException as e:
+        write_status(out, job=job, state="failed", round=args.round, modes=modes, started=t_start,
+                     error=f"{type(e).__name__}: {str(e)[:300]}")
+        raise
+
+
+def run_job(args, out, job, modes, t_start):
     from vpt_arena.rl.sim_env import ArenaSimEnv
     envs = []
     for i, m in enumerate(modes):
