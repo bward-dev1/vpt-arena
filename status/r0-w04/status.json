@@ -1,0 +1,1 @@
+{"job": "r0-w04", "state": "running", "round": 0, "modes": ["duels_bow", "duels_combo"], "started": 1795289735.6345692, "iter": 8, "env_steps": 640, "fps": 4.6, "per_mode": {"duels_bow": {"episodes": 2, "return": -5.192, "win_rate": 0.0}, "duels_combo": {"episodes": 2, "return": -5.335999975, "win_rate": 0.0}}, "minutes_left": 145.4, "updated": 1795290013.8018222}
