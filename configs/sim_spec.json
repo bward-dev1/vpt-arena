@@ -1,0 +1,43 @@
+{
+ "note": "Custom simulation spec: the allowed values. The site form, the Cloudflare worker and the cloud runner all validate against this file.",
+ "limits": {
+  "name_max": 40,
+  "arena_size": [3, 16],
+  "seconds": [10, 120],
+  "episodes": [1, 3],
+  "opponent_groups": [0, 4],
+  "opponent_count": [1, 4],
+  "opponents_total_max": 6,
+  "opponent_distance": [3, 20],
+  "blocks": [0, 64],
+  "gapples": [0, 8],
+  "arrows": [0, 64],
+  "goal_distance": [8, 30],
+  "difficulty": [0.0, 1.0],
+  "seed": [0, 999999]
+ },
+ "enums": {
+  "floor": ["smooth_stone", "white_wool", "grass_block", "snow_block", "quartz_block", "end_stone", "white_concrete", "oak_planks", "obsidian"],
+  "hazard": ["void", "lava", "ground"],
+  "time": ["day", "night"],
+  "weapon": ["none", "wooden_sword", "stone_sword", "iron_sword", "diamond_sword", "netherite_sword", "iron_axe", "diamond_axe"],
+  "armor": ["none", "leather", "chainmail", "iron", "diamond", "netherite"],
+  "opponent_type": ["zombie", "husk", "drowned", "skeleton", "stray", "vindicator", "pillager", "spider", "witch", "piglin_brute", "wither_skeleton", "creeper", "iron_golem"],
+  "goal": ["none", "bridge", "bed"]
+ },
+ "defaults": {
+  "name": "Custom duel",
+  "model": "latest",
+  "base_mode": "duels_sword",
+  "arena": {"size": 10, "floor": "smooth_stone", "hazard": "void", "time": "day"},
+  "player": {"weapon": "iron_sword", "armor": "iron", "bow": false, "arrows": 0, "blocks": 0, "gapples": 0},
+  "opponents": [{"type": "zombie", "count": 1, "weapon": "iron_sword", "armor": "iron", "distance": 7}],
+  "goal": {"type": "none", "distance": 16},
+  "seconds": 60,
+  "episodes": 1,
+  "difficulty": 1.0,
+  "seed": 0
+ },
+ "models": "baseline, latest (newest round-N), or a round-N tag that exists as a release",
+ "base_mode": "any games.py mode key; it sets the policy's game-mode conditioning"
+}

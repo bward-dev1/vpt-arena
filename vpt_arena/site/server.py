@@ -464,6 +464,11 @@ class Arena:
             if state == "running" and upd and time.time() - upd > 1800:
                 state = "stopped"
             rnd = st.get("round") if num(st.get("round")) else None
+            info = read_json(p / "run.json", {})
+            info = info if isinstance(info, dict) else {}
+            targs = info.get("args") if isinstance(info.get("args"), dict) else {}
+            minutes = targs.get("minutes") if num(targs.get("minutes")) else None
+            started = to_ts(st.get("started")) or to_ts(info.get("started"))
             if rnd is None:
                 mt = re.match(r"^r(\d+)-", p.name)
                 rnd = int(mt.group(1)) if mt else None
@@ -479,6 +484,7 @@ class Arena:
                         "env_steps": st.get("env_steps") if num(st.get("env_steps")) else None,
                         "fps": st.get("fps") if num(st.get("fps")) else None,
                         "minutes_left": st.get("minutes_left") if num(st.get("minutes_left")) else None,
+                        "minutes": minutes, "started": started,
                         "updated": upd, "per_mode": pm})
         out.sort(key=lambda w: (-(w["round"] if w["round"] is not None else -1), w["job"]))
         return {"workers": out}

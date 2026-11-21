@@ -47,7 +47,7 @@ def mob(kind, dx, dz, hand=None, tier=None, extra=""):
     cmds = [f"/summon {kind} ~{dx} ~1 ~{dz} {{{','.join(parts)}}}"]
     if tier:
         for slot, piece in (("head", "helmet"), ("chest", "chestplate"), ("legs", "leggings"), ("feet", "boots")):
-            cmds.append(f"/replaceitem entity @e[tag={tag},limit=1] armor.{slot} {tier}_{piece}")
+            cmds.append(f"/replaceitem entity @e[tag={tag},limit=1,sort=nearest] armor.{slot} {tier}_{piece}")
     return cmds
 
 

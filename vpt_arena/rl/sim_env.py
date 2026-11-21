@@ -84,8 +84,8 @@ def health(info):
 
 
 class ArenaSimEnv:
-    def __init__(self, mode, seed=0, sim=None, obs_size=(128, 128), difficulty=1.0):
-        self.task = TASKS[mode]
+    def __init__(self, mode, seed=0, sim=None, obs_size=(128, 128), difficulty=1.0, task=None):
+        self.task = task if task is not None else TASKS[mode]
         self.mode = mode
         self.rng = random.Random(seed)
         self.seed = seed
