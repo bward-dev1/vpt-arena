@@ -1,0 +1,167 @@
+{
+ "1x": {
+  "net": {
+   "attention_heads": 8,
+   "attention_mask_style": "clipped_causal",
+   "attention_memory_size": 256,
+   "diff_mlp_embedding": false,
+   "hidsize": 1024,
+   "img_shape": [
+    128,
+    128,
+    3
+   ],
+   "impala_chans": [
+    16,
+    32,
+    32
+   ],
+   "impala_kwargs": {
+    "post_pool_groups": 1
+   },
+   "impala_width": 4,
+   "init_norm_kwargs": {
+    "batch_norm": false,
+    "group_norm_groups": 1
+   },
+   "n_recurrence_layers": 4,
+   "only_img_input": true,
+   "pointwise_ratio": 4,
+   "pointwise_use_activation": false,
+   "recurrence_is_residual": true,
+   "recurrence_type": "transformer",
+   "timesteps": 128,
+   "use_pointwise_layer": true,
+   "use_pre_lstm_ln": false
+  },
+  "pi_head": {
+   "temperature": 1.0
+  }
+ },
+ "2x": {
+  "net": {
+   "attention_heads": 16,
+   "attention_mask_style": "clipped_causal",
+   "attention_memory_size": 256,
+   "diff_mlp_embedding": false,
+   "hidsize": 2048,
+   "img_shape": [
+    128,
+    128,
+    3
+   ],
+   "impala_chans": [
+    16,
+    32,
+    32
+   ],
+   "impala_kwargs": {
+    "post_pool_groups": 1
+   },
+   "impala_width": 8,
+   "init_norm_kwargs": {
+    "batch_norm": false,
+    "group_norm_groups": 1
+   },
+   "n_recurrence_layers": 4,
+   "only_img_input": true,
+   "pointwise_ratio": 4,
+   "pointwise_use_activation": false,
+   "recurrence_is_residual": true,
+   "recurrence_type": "transformer",
+   "timesteps": 128,
+   "use_pointwise_layer": true,
+   "use_pre_lstm_ln": false
+  },
+  "pi_head": {
+   "temperature": 2.0
+  }
+ },
+ "3x": {
+  "net": {
+   "attention_heads": 24,
+   "attention_mask_style": "clipped_causal",
+   "attention_memory_size": 256,
+   "diff_mlp_embedding": false,
+   "hidsize": 3072,
+   "img_shape": [
+    128,
+    128,
+    3
+   ],
+   "impala_chans": [
+    16,
+    32,
+    32
+   ],
+   "impala_kwargs": {
+    "post_pool_groups": 1
+   },
+   "impala_width": 12,
+   "init_norm_kwargs": {
+    "batch_norm": false,
+    "group_norm_groups": 1
+   },
+   "n_recurrence_layers": 4,
+   "only_img_input": true,
+   "pointwise_ratio": 4,
+   "pointwise_use_activation": false,
+   "recurrence_is_residual": true,
+   "recurrence_type": "transformer",
+   "timesteps": 128,
+   "use_pointwise_layer": true,
+   "use_pre_lstm_ln": false
+  },
+  "pi_head": {
+   "temperature": 3.0
+  }
+ },
+ "idm4x": {
+  "net": {
+   "attention_heads": 32,
+   "attention_mask_style": "none",
+   "attention_memory_size": 128,
+   "conv3d_params": {
+    "inchan": 3,
+    "kernel_size": [
+     5,
+     1,
+     1
+    ],
+    "outchan": 128,
+    "padding": [
+     2,
+     0,
+     0
+    ]
+   },
+   "hidsize": 4096,
+   "img_shape": [
+    128,
+    128,
+    128
+   ],
+   "impala_kwargs": {
+    "post_pool_groups": 1
+   },
+   "impala_width": 16,
+   "init_norm_kwargs": {
+    "batch_norm": false,
+    "group_norm_groups": 1
+   },
+   "n_recurrence_layers": 2,
+   "only_img_input": true,
+   "pointwise_ratio": 4,
+   "pointwise_use_activation": false,
+   "recurrence_is_residual": true,
+   "recurrence_type": "transformer",
+   "single_output": true,
+   "timesteps": 128,
+   "use_pointwise_layer": true,
+   "use_pre_lstm_ln": false
+  },
+  "pi_head": {
+   "temperature": 4.0
+  }
+ }
+}

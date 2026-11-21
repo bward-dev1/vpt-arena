@@ -1,0 +1,146 @@
+{
+ "note": "LiveEnv settings. {agent} and {opponent} are replaced with the player names. The RCON password is read from the VPT_RCON_PASSWORD environment variable. Duel modes use the vpt_arena datapack (tools/make_datapack.py); the other modes need a minigame plugin, so fill in its join command and chat patterns.",
+ "agent_name": "VPTAgent",
+ "opponent_name": "",
+ "rcon": {
+  "host": "127.0.0.1",
+  "port": 25575
+ },
+ "server_log": "",
+ "modes": {
+  "duels_sword": {
+   "start": [
+    "tag @a remove vpt_p",
+    "tag @a remove vpt_a",
+    "tag @a remove vpt_b",
+    "tag {agent} add vpt_p",
+    "tag {agent} add vpt_a",
+    "tag {opponent} add vpt_p",
+    "tag {opponent} add vpt_b",
+    "function vpt:duel/start_sword"
+   ],
+   "start_event": "round_start",
+   "end_events": [
+    "win",
+    "loss",
+    "draw"
+   ],
+   "max_seconds": 180
+  },
+  "duels_classic": {
+   "start": [
+    "tag @a remove vpt_p",
+    "tag @a remove vpt_a",
+    "tag @a remove vpt_b",
+    "tag {agent} add vpt_p",
+    "tag {agent} add vpt_a",
+    "tag {opponent} add vpt_p",
+    "tag {opponent} add vpt_b",
+    "function vpt:duel/start_classic"
+   ],
+   "start_event": "round_start",
+   "end_events": [
+    "win",
+    "loss",
+    "draw"
+   ],
+   "max_seconds": 180
+  },
+  "duels_uhc": {
+   "start": [
+    "tag @a remove vpt_p",
+    "tag @a remove vpt_a",
+    "tag @a remove vpt_b",
+    "tag {agent} add vpt_p",
+    "tag {agent} add vpt_a",
+    "tag {opponent} add vpt_p",
+    "tag {opponent} add vpt_b",
+    "function vpt:duel/start_uhc"
+   ],
+   "start_event": "round_start",
+   "end_events": [
+    "win",
+    "loss",
+    "draw"
+   ],
+   "max_seconds": 300
+  },
+  "duels_bow": {
+   "start": [
+    "tag @a remove vpt_p",
+    "tag @a remove vpt_a",
+    "tag @a remove vpt_b",
+    "tag {agent} add vpt_p",
+    "tag {agent} add vpt_a",
+    "tag {opponent} add vpt_p",
+    "tag {opponent} add vpt_b",
+    "function vpt:duel/start_bow"
+   ],
+   "start_event": "round_start",
+   "end_events": [
+    "win",
+    "loss",
+    "draw"
+   ],
+   "max_seconds": 180
+  },
+  "duels_sumo": {
+   "start": [
+    "tag @a remove vpt_p",
+    "tag @a remove vpt_a",
+    "tag @a remove vpt_b",
+    "tag {agent} add vpt_p",
+    "tag {agent} add vpt_a",
+    "tag {opponent} add vpt_p",
+    "tag {opponent} add vpt_b",
+    "function vpt:duel/start_sumo"
+   ],
+   "start_event": "round_start",
+   "end_events": [
+    "win",
+    "loss",
+    "draw"
+   ],
+   "max_seconds": 120
+  },
+  "duels_boxing": {
+   "start": [
+    "tag @a remove vpt_p",
+    "tag @a remove vpt_a",
+    "tag @a remove vpt_b",
+    "tag {agent} add vpt_p",
+    "tag {agent} add vpt_a",
+    "tag {opponent} add vpt_p",
+    "tag {opponent} add vpt_b",
+    "function vpt:duel/start_boxing"
+   ],
+   "start_event": "round_start",
+   "end_events": [
+    "win",
+    "loss",
+    "draw"
+   ],
+   "max_seconds": 180
+  },
+  "bedwars_solo": {
+   "start": [],
+   "start_event": "round_start",
+   "end_events": [
+    "win",
+    "loss"
+   ],
+   "max_seconds": 1500,
+   "patterns": [
+    {
+     "regex": "(?P<other>\\w+)'s? bed was (?:destroyed|broken) by (?P<player>\\w+)",
+     "event": "bed_broken"
+    },
+    {
+     "regex": "(?P<player>\\w+) .*FINAL KILL",
+     "event": "final_kill"
+    }
+   ],
+   "note": "Example patterns for a Bed Wars plugin; match them to your plugin's chat messages."
+  }
+ }
+}

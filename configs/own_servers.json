@@ -1,0 +1,4 @@
+{
+ "servers": ["localhost", "127.0.0.1"],
+ "note": "Servers the live agent and RL may connect to. Add your own server hosts here."
+}
