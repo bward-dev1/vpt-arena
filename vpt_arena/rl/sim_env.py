@@ -154,6 +154,7 @@ class ArenaSimEnv:
             a[k] = int(action.get(k, 0))
         a["camera"] = np.asarray(action.get("camera", (0.0, 0.0)), dtype=np.float32)
         obs, _, term, trunc, info = self.sim.step(a)
+        self.last_pov = info.get("pov")
         t, w = self.task, self.task.w
         self.t += 1
         r = 0.0

@@ -45,9 +45,9 @@ jobs:
             gh release download "${{ inputs.tag }}" -p global.weights -D w
           fi
       - name: Evaluate
-        run: xvfb-run -a -s "-screen 0 1024x768x24" python cloud/eval_job.py --weights w/global.weights --name "${{ inputs.tag }}" --modes "${{ matrix.modes }}" --episodes "${{ inputs.episodes }}" --out eval
+        run: xvfb-run -a -s "-screen 0 1024x768x24" python cloud/eval_job.py --weights w/global.weights --name "${{ inputs.tag }}" --modes "${{ matrix.modes }}" --episodes "${{ inputs.episodes }}" --out eval --clips clips
       - uses: actions/upload-artifact@v4
-        with: {name: "eval-${{ strategy.job-index }}", path: eval}
+        with: {name: "eval-${{ strategy.job-index }}", path: "eval\nclips"}
   publish:
     needs: eval
     if: always()
@@ -73,3 +73,8 @@ jobs:
             gh release view baseline >/dev/null 2>&1 || gh release create baseline --title "Baseline: VPT foundation 1x" --notes "Evaluation of the unmodified VPT foundation 1x model on all modes." --prerelease
           fi
           gh release upload "$TAG" eval.json --clobber
+          CLIPS=$(find art -name "*.mp4" | head -40)
+          if [ -n "$CLIPS" ]; then
+            mkdir -p up && for f in $CLIPS; do cp "$f" "up/clip-$(basename "$f")"; done
+            gh release upload "$TAG" up/*.mp4 --clobber
+          fi
