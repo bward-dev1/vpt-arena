@@ -64,7 +64,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p out/$JOB
-          ( while true; do sleep 300; python cloud/push_status.py out/$JOB || true; done ) &
+          ( while true; do sleep 180; python cloud/push_status.py out/$JOB || true; done ) &
           xvfb-run -a -s "-screen 0 1024x768x24" python cloud/rl_job.py --modes "${{ matrix.modes }}" \
             --weights w/global.weights --prior w/global.weights --minutes "${{ inputs.minutes }}" \
             --out out/$JOB --round "${{ inputs.round }}" --seed "${{ strategy.job-index }}" 2>&1 | tee out/$JOB/stdout.log

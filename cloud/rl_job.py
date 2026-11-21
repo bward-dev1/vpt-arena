@@ -21,6 +21,16 @@ from vpt_arena.rl.ppo import PPO  # noqa: E402
 from vpt_arena.vpt import build_policy, load_weights  # noqa: E402
 
 
+def write_frames(out, envs):
+    """Latest view of each sim as a small JPEG, for the site's Live page (pushed with the status)."""
+    import cv2
+    for i, e in enumerate(envs):
+        pov = getattr(e, "last_pov", None)
+        if pov is not None:
+            img = cv2.resize(pov, (320, 180), interpolation=cv2.INTER_AREA)
+            cv2.imwrite(str(out / f"frame{i}.jpg"), cv2.cvtColor(img, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 70])
+
+
 def write_status(out, **kw):
     kw["updated"] = time.time()
     tmp = out / "status.json.tmp"
@@ -94,6 +104,7 @@ def run_job(args, out, job, modes, t_start):
                 if eps:
                     per_mode[m] = {"episodes": len(eps), "return": sum(f[1] for f in eps) / len(eps),
                                    "win_rate": sum(f[3] for f in eps) / len(eps)}
+            write_frames(out, envs)
             write_status(out, job=job, state="running", round=args.round, modes=modes, started=t_start,
                          iter=rec["iter"], env_steps=rec["env_steps"], fps=rec["fps"], per_mode=per_mode,
                          minutes_left=round((deadline - time.time()) / 60, 1))

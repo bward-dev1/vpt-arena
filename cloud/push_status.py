@@ -34,7 +34,7 @@ def main():
     if call("GET", f"/repos/{repo}/git/ref/heads/{branch}") is None:
         main_sha = call("GET", f"/repos/{repo}/git/ref/heads/main")["object"]["sha"]
         call("POST", f"/repos/{repo}/git/refs", {"ref": f"refs/heads/{branch}", "sha": main_sha})
-    for name in ("status.json", "run.json", "rl_log.jsonl"):
+    for name in ("status.json", "run.json", "rl_log.jsonl", "frame0.jpg", "frame1.jpg"):
         f = out / name
         if not f.exists():
             continue

@@ -34,7 +34,7 @@ def main():
         job = br[len("status-"):]
         d = RUNS / job
         d.mkdir(exist_ok=True)
-        for name in ("status.json", "run.json", "rl_log.jsonl"):
+        for name in ("status.json", "run.json", "rl_log.jsonl", "frame0.jpg", "frame1.jpg"):
             try:
                 meta = api(f"repos/{REPO}/contents/status/{job}/{name}?ref={br}")
             except RuntimeError:
