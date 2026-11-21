@@ -1,0 +1,1 @@
+{"kind": "rl", "arch": "1x", "started": 1795299867.654163, "args": {"modes": ["kitpvp", "spleef"], "round": 1, "T": 40, "lr": 2e-05, "kl_coef": 0.1, "minutes": 150.0, "platform": "github-actions", "difficulty": 0.44999999999999996}}
