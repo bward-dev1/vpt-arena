@@ -1,0 +1,1 @@
+{"kind": "rl", "arch": "1x", "started": 1795289571.516237, "args": {"modes": ["uhc", "survival_games"], "round": 0, "T": 40, "lr": 2e-05, "kl_coef": 0.1, "minutes": 150.0, "platform": "github-actions"}}
