@@ -105,8 +105,10 @@ class ArenaSimEnv:
         if not self.started:
             obs, info = self.sim.reset()
             self.started = True
-            for c in ("/gamerule doImmediateRespawn true", "/gamerule doMobSpawning false", "/gamerule doDaylightCycle false",
-                      "/gamerule announceAdvancements false", "/gamerule sendCommandFeedback false",
+            # silence chat feedback and toasts first: VPT never saw them and they cover the view
+            for c in ("/gamerule sendCommandFeedback false", "/gamerule announceAdvancements false",
+                      "/advancement grant @p everything", "/recipe give @p *",
+                      "/gamerule doImmediateRespawn true", "/gamerule doMobSpawning false", "/gamerule doDaylightCycle false",
                       "/gamerule naturalRegeneration true", "/difficulty normal", "/time set day", "/weather clear 99999"):
                 self._cmd(c)
         self.episode += 1
