@@ -36,6 +36,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GITHUB_TOKEN: ${{ github.token }}
       JOB: r${{ inputs.round }}-${{ matrix.job }}
+      LP_NUM_THREADS: "2"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

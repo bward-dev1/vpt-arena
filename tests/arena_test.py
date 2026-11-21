@@ -31,7 +31,7 @@ class FakeInner:
         self.cmds.append(c)
         if c.startswith("/tp @p"):
             x, y, z = (float(v) for v in c.split()[2:5])
-            self.outer.info["player_pos"] = {"x": x, "y": y, "z": z, "pitch": 0, "yaw": -90}
+            self.outer.info["player_pos"] = {"x": x + 0.5, "y": y, "z": z + 0.5, "pitch": 0, "yaw": -90}  # MC centres integer x/z
         return {}, 0, False, dict(self.outer.info)
 
 
@@ -79,6 +79,8 @@ def main():
     env = ArenaSimEnv("bedwars_solo", sim=sim)
     env.reset()
     y0 = env.origin[1]
+    for _ in range(11):  # position checks start after a short settling period
+        env.step({})
     sim.script = [lambda i: i.update(player_pos={**i["player_pos"], "y": y0 - 20})]
     _, r, d, inf = env.step({})
     assert d and inf["died"] and r < 0
@@ -112,6 +114,17 @@ def main():
     _, r1, _, _ = env.step({"attack": 1})
     _, r2, _, _ = env.step({"use": 1})
     assert r1 == 3.0 and r2 == 2.0, (r1, r2)
+
+    # a simulator failure ends the episode and recovers instead of crashing
+    sim = FakeSim()
+    env = ArenaSimEnv("duels_sword", sim=sim)
+    env.reset()
+    def boom(i):
+        raise TimeoutError("timed out")
+    sim.script = [boom]
+    _, r, d, inf = env.step({})
+    assert d and inf.get("sim_error") and env.recoveries == 1 and not env.started
+    env.reset()
 
     # timeout
     sim = FakeSim()

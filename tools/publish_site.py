@@ -43,8 +43,8 @@ PROJECT = "vpt-arena"
 KV_TITLE = "vpt-arena-data"
 KV_KEY = "data"
 COMPAT_DATE = "2025-01-01"
-MAX_RUNS = 12
-PUBLIC_POINTS = 200
+MAX_RUNS = 30
+PUBLIC_POINTS = 120
 KV_REFRESH_S = 3600
 
 # Anything matching these in the built files or the snapshot fails the publish.
@@ -184,6 +184,8 @@ def build_snapshot(root):
         "data": data,
         "league": league,
         "cloud": a.api_cloud(),
+        "rounds": a.api_rounds(),
+        "workers": {"workers": a.api_workers()["workers"][:60]},
         "live": {"online": False, "age": None, "status": None, "frame": False, "now": time.time()},
     }
 

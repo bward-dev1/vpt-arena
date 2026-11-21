@@ -20,6 +20,7 @@ import torch as th
 from .. import games
 from ..data import resize_frame
 from ..train_bc import detach_state, to_device_state
+from ..seqfwd import segmented_forward
 from ..vpt import ActionCodec
 
 import lib.tree_util as tree_util  # noqa: E402
@@ -144,7 +145,7 @@ class PPO:
         pd_prior = None
         if self.prior is not None and not warm:
             with th.no_grad():
-                (pd_prior, _, _), _ = self.prior(obs={"img": img}, first=first, state_in=roll["start_prior"])
+                (pd_prior, _), _ = segmented_forward(self.prior, {"img": img}, first, roll["start_prior"])
         stats = defaultdict(list)
         idx = np.arange(self.N)
         for _ in range(self.epochs):
@@ -153,8 +154,8 @@ class PPO:
                 mbt = th.as_tensor(mb, device=dev)
                 st = tree_util.tree_map(lambda x: x[mbt] if isinstance(x, th.Tensor) and x.dim() > 0 else x,
                                         roll["start_state"])
-                (pd, vpred, _), _ = p(obs={"img": img[mbt], "diff_goal": self.cond[mbt, None].expand(-1, self.T, -1)},
-                                      first=first[mbt], state_in=st)
+                (pd, vpred), _ = segmented_forward(
+                    p, {"img": img[mbt], "diff_goal": self.cond[mbt, None].expand(-1, self.T, -1)}, first[mbt], st)
                 v_loss = p.value_head.loss(vpred, ret[mbt][..., None])
                 if warm:
                     loss = self.vf_coef * v_loss

@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from vpt_arena import games  # noqa: E402
 from vpt_arena.rl.envs import AttackOnRed  # noqa: E402
 from vpt_arena.rl.ppo import PPO, masked_logprob  # noqa: E402
+from vpt_arena.seqfwd import segmented_forward  # noqa: E402
 from vpt_arena.train_bc import bc_terms, seq_forward  # noqa: E402
 from vpt_arena.vpt import ActionCodec, build_policy, noop_env_action  # noqa: E402
 
@@ -61,7 +62,7 @@ def main():
     prior = build_policy("1x", conditioned=False, net_overrides=TINY)
     prior.load_state_dict({k: v for k, v in policy.state_dict().items() if "diff_obs_process" not in k}, strict=False)
     prior.eval().requires_grad_(False)
-    envs = [AttackOnRed(seed=i) for i in range(8)]
+    envs = [AttackOnRed(seed=i, episode_len=11 if i % 2 else 32) for i in range(8)]  # resets mid-rollout
     run = Path(tempfile.mkdtemp(prefix="vpt-arena-rl-"))
     ppo = PPO(policy, envs, ["duels_sword"] * 8, prior=prior, T=16, lr=3e-4, ent_coef=0.003, kl_coef=0.01,
               epochs=3, minibatches=2, gamma=0.9, lam=0.9, vf_warmup=2, run=run)
@@ -70,8 +71,10 @@ def main():
     roll = ppo.collect()
     policy.eval()
     with th.no_grad():
-        (pd, _, _), _ = policy(obs={"img": th.as_tensor(roll["img"]), "diff_goal": ppo.cond[:, None].expand(-1, 16, -1)},
-                               first=th.as_tensor(roll["first"]), state_in=roll["start_state"])
+        (pd, _), _ = segmented_forward(policy, {"img": th.as_tensor(roll["img"]),
+                                                "diff_goal": ppo.cond[:, None].expand(-1, 16, -1)},
+                                       th.as_tensor(roll["first"]), roll["start_state"])
+        assert bool(th.as_tensor(roll["first"])[:, 1:].any()), "test needs a mid-rollout episode start"
         lp = masked_logprob(policy, pd, th.as_tensor(roll["buttons"]), th.as_tensor(roll["camera"]), ppo.cam_off)
     diff = float((lp - th.as_tensor(roll["logp"])).abs().max())
     print(f"max |logp(seq) - logp(rollout)| = {diff:.2e}")

@@ -72,12 +72,29 @@ class ArenaSimEnv:
         self.mode = mode
         self.rng = random.Random(seed)
         self.seed = seed
-        if sim is None:
-            from minestudio.simulator import MinecraftSim
-            sim = MinecraftSim(action_type="env", obs_size=obs_size, render_size=(640, 360), seed=seed)
-        self.sim = sim
+        self.obs_size = obs_size
+        self.own_sim = sim is None
+        self.sim = sim if sim is not None else self._new_sim()
+        self.recoveries = 0
         self.started = False
         self.episode = 0
+        self.noop = None
+
+    def _new_sim(self):
+        from minestudio.simulator import MinecraftSim
+        return MinecraftSim(action_type="env", obs_size=self.obs_size, render_size=(640, 360), seed=self.seed)
+
+    def _recover(self, why):
+        """The Java side timed out or broke: start a fresh simulator; the next reset does a full reset."""
+        print(f"[sim_env] {self.mode}: recovering simulator ({why})", flush=True)
+        self.recoveries += 1
+        if self.own_sim:
+            try:
+                self.sim.close()
+            except Exception:
+                pass
+            self.sim = self._new_sim()
+        self.started = False
         self.noop = None
 
     # ------------------------------------------------------------------ helpers
@@ -102,6 +119,15 @@ class ArenaSimEnv:
 
     # ------------------------------------------------------------------ gym-ish
     def reset(self):
+        for attempt in range(3):
+            try:
+                return self._reset()
+            except Exception as e:
+                if attempt == 2:
+                    raise
+                self._recover(f"reset failed: {type(e).__name__}: {str(e)[:120]}")
+
+    def _reset(self):
         if not self.started:
             obs, info = self.sim.reset()
             self.started = True
@@ -130,9 +156,18 @@ class ArenaSimEnv:
         for c in t.opponents:
             self._cmd(c)
         obs, info = self._idle(4)
+        if t.sky:
+            # info can lag a teleport by a few frames; wait until it reports the arena
+            for _ in range(40):
+                p = position(info)
+                if p and abs(p[0] - (x0 + 0.5)) < 4 and abs(p[2] - (z0 + 0.5)) < 4:
+                    break
+                obs, info = self._idle(1)
+            self.origin = (x0 + 0.5, float(Y), z0 + 0.5)
+        else:
+            self.origin = position(info) or (0.0, 64.0, 0.0)
         self.t = 0
         self.prev = info
-        self.origin = position(info) or (0.0, float(Y), 0.0)
         self.kills0 = stat(info, "kill_entity", t.opponent_types)
         self.n_opp = len(t.opponents)
         self.targets0 = stat(info, "mine_block", t.target_blocks) if t.target_blocks else 0.0
@@ -153,7 +188,14 @@ class ArenaSimEnv:
         for k in ENV_KEYS:
             a[k] = int(action.get(k, 0))
         a["camera"] = np.asarray(action.get("camera", (0.0, 0.0)), dtype=np.float32)
-        obs, _, term, trunc, info = self.sim.step(a)
+        try:
+            obs, _, term, trunc, info = self.sim.step(a)
+            if "error" in info:
+                raise RuntimeError(str(info["error"])[:200])
+        except Exception as e:
+            self._recover(f"step failed: {type(e).__name__}: {str(e)[:120]}")
+            return np.zeros((*self.obs_size, 3), np.uint8), 0.0, True, {"won": False, "died": False, "events": {},
+                                                                        "mode": self.mode, "sim_error": True}
         self.last_pov = info.get("pov")
         t, w = self.task, self.task.w
         self.t += 1
@@ -197,8 +239,9 @@ class ArenaSimEnv:
                         self.cur_units[item] += gain
         # death: health hits 0, or fell out of a sky arena, or respawned far away
         p = position(info)
-        fell = t.sky and p is not None and p[1] < self.origin[1] - 8
-        respawned = p is not None and t.sky and math.hypot(p[0] - self.origin[0], p[2] - self.origin[2]) > 60
+        settled = self.t > 10  # ignore position readings right after the arena build
+        fell = settled and t.sky and p is not None and p[1] < self.origin[1] - 8
+        respawned = settled and p is not None and t.sky and math.hypot(p[0] - self.origin[0], p[2] - self.origin[2]) > 60
         died = hp <= 0 or fell or respawned or bool(term)
         won = False
         if died:

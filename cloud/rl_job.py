@@ -96,6 +96,7 @@ def run_job(args, out, job, modes, t_start):
                          minutes_left=round((deadline - time.time()) / 60, 1))
     finally:
         ppo.save()
+        (out / "latest.pt").unlink(missing_ok=True)  # optimizer state is 3x the policy; artifacts keep policy.weights only
         write_status(out, job=job, state="finished", round=args.round, modes=modes, started=t_start,
                      iter=ppo.iter, env_steps=ppo.env_steps)
         for e in envs:

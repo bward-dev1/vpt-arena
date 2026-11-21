@@ -139,11 +139,60 @@ function multiChart(series, label) {
 }
 const placeholderCard = (title, msg) => `<div class="card chart"><h3>${esc(title)}</h3><div class="empty">${esc(msg)}</div></div>`;
 
+const REPO_URL = "https://github.com/bward-dev1/vpt-arena";
+const okUrl = u => typeof u === "string" && u.startsWith("https://github.com/");
+function clipHtml(c, title) {
+  return `<figure class="clipfig"><div class="clip"><video controls muted playsinline preload="none" src="${esc(c.url)}" aria-label="${esc(title)}"></video><button class="clip-play" type="button" aria-label="Play ${esc(title)}"><svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg></button></div><figcaption><span class="tag">${esc(c.tag)}</span> ${esc(title)}</figcaption></figure>`;
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest && e.target.closest(".clip-play");
+  if (b) { const v = b.parentElement.querySelector("video"); v.play().catch(() => {}); }
+});
+document.addEventListener("play", e => { if (e.target.tagName === "VIDEO") { const b = e.target.parentElement.querySelector(".clip-play"); if (b) b.hidden = true; } }, true);
+document.addEventListener("pause", e => { if (e.target.tagName === "VIDEO" && e.target.ended === false && e.target.currentTime === 0) { const b = e.target.parentElement.querySelector(".clip-play"); if (b) b.hidden = false; } }, true);
+
 function cloudTable(c) {
+  if (c && c.jobs) {
+    const workers = c.jobs.filter(j => j.platform === "github-actions" && j.run);
+    if (workers.length) {
+      const by = {}; workers.forEach(j => by[j.state] = (by[j.state] || 0) + 1);
+      const rest = { ...c, jobs: c.jobs.filter(j => !(j.platform === "github-actions" && j.run)) };
+      return (rest.jobs.length ? cloudTable(rest) : "") + `<p class="upd">${workers.length} worker job(s): ${Object.entries(by).map(([k, v]) => v + " " + k).join(", ")}. <a href="#/training">Per-worker detail on Training</a>.</p>`;
+    }
+  }
   if (!c || !c.jobs || !c.jobs.length) return `<div class="empty">No cloud jobs reported yet. Jobs on Colab, Kaggle or other GPU hosts appear here when training starts.</div>`;
-  const PF = { colab: "Colab", kaggle: "Kaggle", local: "Local" };
+  const PF = { colab: "Colab", kaggle: "Kaggle", local: "Local", "github-actions": "GitHub Actions" };
   return `<div class="tw"><table><thead><tr><th>Job</th><th>Platform</th><th>Hardware</th><th>State</th><th>Started</th><th>Updated</th><th>Progress</th><th>Run</th></tr></thead><tbody>${c.jobs.map(j =>
     `<tr><td>${esc(j.name)}</td><td>${PF[j.platform] || esc(j.platform)}</td><td>${esc(j.hardware || "-")}</td><td><span class="tag ${j.state}">${j.state}</span></td><td>${when(j.started)}</td><td>${ago(j.updated)}</td><td class="wrap">${esc(j.progress || "-")}</td><td>${j.run ? `<a href="#/training/${encodeURIComponent(j.run.split("/").pop())}">${esc(j.run.split("/").pop())}</a>` : "-"}</td></tr>`).join("")}</tbody></table></div>`;
+}
+
+const pct = v => v == null ? "-" : Math.round(v * 100) + "%";
+function roundsView(r, names) {
+  if (!r.rounds.length) return `<div class="empty">No evaluated releases yet. After each round the merged policy is released as round-N and evaluated on every mode, and the baseline VPT model is evaluated the same way. Win rate and return per mode will appear here so rounds can be compared.</div>`;
+  const modes = r.modes.filter(k => r.rounds.some(x => x.modes[k]));
+  const best = {};
+  modes.forEach(k => { const c = r.rounds.filter(x => x.modes[k] && x.modes[k].win_rate != null);
+    if (c.length > 1) best[k] = c.reduce((a, b) => { const A = a.modes[k], B = b.modes[k]; return (B.win_rate > A.win_rate || (B.win_rate === A.win_rate && B.return > A.return)) ? b : a; }).tag; });
+  return `<p class="upd" style="margin:0 0 8px">Each cell is win rate against the scripted arena bots, with mean return below it. The outlined cell is the best release for that mode. Shading follows win rate.</p>
+  <div class="tw"><table class="rounds"><thead><tr><th>Mode</th>${r.rounds.map(x => `<th class="n">${esc(x.tag)}</th>`).join("")}</tr></thead><tbody>
+  ${modes.map(k => `<tr><td>${esc(names[k] || k)}</td>${r.rounds.map(x => { const v = x.modes[k]; return v ? `<td class="rc ${best[k] === x.tag ? "best" : ""}" style="--w:${v.win_rate || 0}"><b>${pct(v.win_rate)}</b><span>${fmt(v.return, 3)}</span></td>` : `<td class="rc none">-</td>`; }).join("")}</tr>`).join("")}
+  <tr class="sum"><td>Mean win rate</td>${r.rounds.map(x => `<td class="n"><b>${pct(x.mean_win_rate)}</b></td>`).join("")}</tr>
+  <tr class="sum"><td>Mean return</td>${r.rounds.map(x => `<td class="n">${fmt(x.mean_return, 3)}</td>`).join("")}</tr>
+  <tr class="sum"><td>Elo vs arena bots</td>${r.rounds.map(x => `<td class="n">${x.elo == null ? "-" : Math.round(x.elo)}</td>`).join("")}</tr>
+  </tbody></table></div>`;
+}
+function workersView(w, names) {
+  if (!w.workers.length) return `<div class="empty">No workers reported yet. Each round starts 12 workers that train two modes each; their progress appears here, grouped by round.</div>`;
+  const groups = new Map();
+  w.workers.forEach(x => { const k = x.round == null ? "other" : x.round; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); });
+  return [...groups].map(([k, list]) => {
+    const by = {}; list.forEach(x => by[x.state] = (by[x.state] || 0) + 1);
+    return `<h3 style="margin:1.2em 0 .5em">${k === "other" ? "Other workers" : "Round " + k} <small style="color:var(--muted);font-weight:500">${list.length} worker(s): ${Object.entries(by).map(([s, n]) => n + " " + s).join(", ")}</small></h3>
+    <div class="tw"><table><thead><tr><th>Worker</th><th>State</th><th class="n">Iter</th><th class="n">Steps</th><th class="n">FPS</th><th class="n">Min left</th><th>Modes: return, win rate</th><th>Updated</th></tr></thead><tbody>
+    ${list.map(x => `<tr><td><a href="#/training/${encodeURIComponent(x.job)}">${esc(x.job)}</a></td><td><span class="tag ${x.state}">${esc(x.state)}</span></td><td class="n">${x.iter ?? "-"}</td><td class="n">${x.env_steps == null ? "-" : Number(x.env_steps).toLocaleString()}</td><td class="n">${x.fps == null ? "-" : fmtN(x.fps, 1)}</td><td class="n">${x.minutes_left == null ? "-" : Math.round(x.minutes_left)}</td>
+    <td class="wrap">${(x.modes.length ? x.modes : Object.keys(x.per_mode)).map(m => { const v = x.per_mode[m]; return `<div class="pm"><b>${esc(names[m] || m)}</b> ${v ? `return ${fmt(v.return, 3)}, win ${pct(v.win_rate)} <span class="mono">(${v.episodes} ep)</span>` : `<span class="mono">no episodes yet</span>`}</div>`; }).join("")}</td><td>${ago(x.updated)}</td></tr>`).join("")}
+    </tbody></table></div>`;
+  }).join("");
 }
 
 /* ---------- pages ---------- */
@@ -166,6 +215,8 @@ pages.overview = async () => {
   ${o.phases.map(p => `<tr><td>${p.phase}. ${esc(p.name)}</td><td class="wrap">${esc(p.what)}</td><td class="wrap">${esc(p.status)}</td><td class="wrap">${esc(p.tested)}</td><td><span class="tag ${p.state}">${p.state === "done" ? "has data" : p.state === "active" ? "running" : "empty"}</span></td></tr>`).join("")}
   </tbody></table></div>
   <p style="color:var(--faint);font-size:.85rem">Status comes from the files on disk (weights, data, runs, live), not from the README. The Tested column is a fixed note on how far each phase has been checked; see the Docs page.</p>
+  <h2>Watch the agent</h2>
+  ${o.clips && o.clips.length ? `<div class="clips">${o.clips.map(c => clipHtml(c, c.name)).join("")}</div>` : `<div class="empty">No gameplay clips yet. After each training round the agent is evaluated on every mode and a short clip of each is posted here.</div>`}
   <h2>Cloud</h2>
   ${cloudTable(o.cloud)}
   <p class="upd">${o.cloud && o.cloud.updated ? "Cloud status updated " + when(o.cloud.updated) : "No cloud status file yet."}</p>
@@ -185,6 +236,7 @@ pages.modes = async () => {
     $("#mgrid").innerHTML = list.map(m => `<article class="card mode"><h3>${esc(m.name)}<span class="mkey">${esc(m.key)}</span></h3>
       <div class="tags"><span class="tag ${m.ruleset}">${m.ruleset === "modern" ? "modern, 1.9+ cooldown" : "legacy, 1.8 combat"}</span><span class="tag">team size ${m.team_size}</span></div>
       <p>${esc(m.summary)}</p>
+      ${m.clip && okUrl(m.clip.url) ? clipHtml(m.clip, "newest clip") : `<div class="noclip">No clip yet</div>`}
       <div class="ev">${Object.entries(m.events).map(([k, w]) => `<span class="${w < 0 ? "neg" : "pos"}">${esc(k)} <b>${w > 0 ? "+" : ""}${w}</b></span>`).join("")}</div>
       <div class="foot2"><span><b>${fmtH(m.hours)}</b> h data (${m.trajectories})</span><span>best Elo <b>${m.best_elo ? Math.round(m.best_elo.elo) : "-"}</b>${m.best_elo ? " " + esc(m.best_elo.name) : ""}</span></div>
     </article>`).join("") || `<div class="empty">no modes match</div>`;
@@ -196,8 +248,18 @@ pages.modes = async () => {
 
 let selRun = null;
 pages.training = async () => {
-  view.innerHTML = `<h1>Training</h1><p class="lede">Runs under <code>runs/</code>. ${STATIC ? "This public page refreshes about once a minute from a snapshot that is rebuilt every 5 minutes." : "Charts refresh every 10 seconds."}</p><div id="runs" class="runs"></div><div id="detail"></div>`;
+  view.innerHTML = `<h1>Training</h1><p class="lede">Runs under <code>runs/</code>. ${STATIC ? "This public page refreshes about once a minute from a snapshot that is rebuilt every 5 minutes." : "Charts refresh every 10 seconds."}</p>
+  <h2>Rounds</h2><div id="rounds"></div>
+  <h2>Workers</h2><div id="workers"></div>
+  <h2>Run charts</h2><div id="runs" class="runs"></div><div id="detail"></div>`;
+  const loadCloud = async () => {
+    const [r, w, md] = await Promise.all([api("/api/rounds"), api("/api/workers"), api("/api/modes")]);
+    const names = Object.fromEntries(md.modes.map(m => [m.key, m.name]));
+    $("#rounds").innerHTML = roundsView(r, names);
+    $("#workers").innerHTML = workersView(w, names);
+  };
   const load = async () => {
+    await loadCloud().catch(e => { $("#rounds").innerHTML = $("#workers").innerHTML = `<div class="empty">Could not load: ${esc(e.message)}</div>`; });
     const { runs } = await api("/api/runs");
     if (!runs.length) { $("#runs").innerHTML = `<div class="empty" style="grid-column:1/-1">No training runs yet. Behavior cloning and RL runs appear here as soon as they write a log.</div>`;
       $("#detail").innerHTML = `<div class="grid cols-2">${placeholderCard("Behavior cloning loss", "No runs yet.")}${placeholderCard("Evaluation loss", "No runs yet.")}${placeholderCard("RL return by mode", "No RL runs yet. One line per game mode will be drawn on one chart.")}${placeholderCard("Win rate", "No RL runs yet.")}</div>`; return; }
@@ -216,7 +278,9 @@ pages.training = async () => {
       ${Object.keys(d.by_mode).length ? `<h2>Latest return by mode</h2><div class="card">${(() => { const e = Object.entries(d.by_mode).sort((a, b) => b[1] - a[1]); const mx = Math.max(...e.map(x => Math.abs(x[1])), 1e-9); return barList(e.map(([k, v]) => [k, Math.abs(v), fmt(v, 3)]), mx); })()}</div>` : ""}
       <h2>Run settings</h2>${Object.keys(d.args).length ? `<div class="tw"><table><tbody>${Object.entries(d.args).map(([k, v]) => `<tr><td class="mono">${esc(k)}</td><td class="mono">${esc(typeof v === "object" ? JSON.stringify(v) : v)}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">no args recorded</div>`}`;
     wireCharts($("#detail"));
+    if (want && !scrolled) { scrolled = true; $("#detail").scrollIntoView(); }
   };
+  let scrolled = false;
   await load();
   every(STATIC ? 60000 : 10000, () => { snapT = 0; load().catch(() => {}); });
 };
@@ -304,7 +368,18 @@ const DOCS = [
  ["intro", "What this is", `
 <p>VPT Arena trains one network to play survival Minecraft and the PvP minigames. The network takes 128x128 game frames and outputs keyboard and mouse actions at 20 Hz. It starts from OpenAI's Video PreTraining (VPT) foundation model. A learned embedding for the game mode, the combat ruleset (1.8 or 1.9+) and the team size is added to the model input. The embedding starts at zero.</p>
 <div class="note"><b>Server scope.</b> It is for a server you run only. Public servers such as Hypixel ban bots, and nothing in this project deals with anti-cheat. Do not point the live client at a server you do not run.</div>
-<p>All phases have code. Each section below says what its command does and how far it has been tested; the Overview page shows the same per phase. So far the real-world checks are the 1x weights on one contractor clip and a short BC fine-tune. The recorder, live agent, datapack and RL have been tested with fakes or a toy environment only.</p>`],
+<p>All phases have code. Each section below says what its command does and how far it has been tested; the Overview page shows the same per phase. So far the real-world checks are the 1x weights on one contractor clip, a short BC fine-tune, and cloud RL in MineStudio (see How cloud RL works). The recorder, live agent and datapack have been tested with fakes only, and the live-server RL path below with a toy environment only.</p>`],
+ ["cloud", "How cloud RL works", `
+<p>Training that needs real gameplay runs on GitHub Actions in the public repository <a href="${REPO_URL}">bward-dev1/vpt-arena</a>. Each round works like this:</p>
+<ul>
+<li>12 workers start at the same time. Each worker trains 2 game modes. Workers run MineStudio on Minecraft 1.16.5.</li>
+<li>Opponents are armed mobs in sky arenas, standing in for players. There is no live server and no other person involved.</li>
+<li>Training is PPO with a KL penalty that pulls the policy toward the policy the round started from.</li>
+<li>When the workers finish, their policies are merged into one by federated averaging, and the result is released as <code>round-N</code>.</li>
+<li>Each release is then evaluated on all 23 modes against the scripted arena bots, which hold an Elo of 1000. The original VPT foundation model is evaluated the same way and appears as <code>baseline</code>. A short gameplay clip of every mode is attached to the release.</li>
+<li>A round takes about 2.5 hours. The runners have no GPU, so the game renders on the CPU at about 20 frames per second per simulation.</li>
+</ul>
+<p>A script on a local machine reads worker status files and release assets every few minutes and writes the data this site shows: the Cloud table, the Workers and Rounds sections on Training, the League page and the clips. The Rounds table compares releases per mode so improvement from one round to the next is visible. Source code and releases: <a href="${REPO_URL}">${REPO_URL.replace("https://", "")}</a>.</p>`],
  ["format", "Data format", `
 <p>Each trajectory is three files with the same stem:</p>
 <ul><li><code>&lt;stem&gt;.mp4</code>: video at 20 fps, 640x360.</li><li><code>&lt;stem&gt;.jsonl</code>: one JSON object per frame, in VPT recorder format.</li><li><code>&lt;stem&gt;.meta.json</code> (optional): mode and weighting.</li></ul>

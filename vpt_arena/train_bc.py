@@ -63,10 +63,11 @@ def checkpoint_cnn(policy):
 
 
 def seq_forward(policy, tb, state, conditioned=True):
+    from .seqfwd import segmented_forward
     obs = {"img": tb["img"]}
     if conditioned:
         obs["diff_goal"] = tb["cond"]
-    (pd, _, _), state_out = policy(obs=obs, first=tb["first"], state_in=state)
+    (pd, _), state_out = segmented_forward(policy, obs, tb["first"], state)
     return pd, state_out
 
 

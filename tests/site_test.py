@@ -304,6 +304,65 @@ class PublishTest(Base):
         self.assertEqual(self.j("/api/cloud")["jobs"][0]["platform"], "colab")
 
 
+class CloudRoundsTest(unittest.TestCase):
+    """Rounds, workers and clips as written by tools/pull_cloud.py."""
+
+    def setUp(self):
+        from vpt_arena.site.server import Arena
+        self.tmp = Path(tempfile.mkdtemp(prefix="vpt-cloud-test-"))
+        runs = self.tmp / "runs"
+        (runs / "r1-w01").mkdir(parents=True)
+        (runs / "r1-w01" / "status.json").write_text(json.dumps({
+            "job": "r1-w01", "state": "running", "round": 1, "modes": ["duels_sword", "survival"], "iter": 3,
+            "env_steps": 900, "fps": 19.5, "minutes_left": 40, "updated": time.time(),
+            "per_mode": {"duels_sword": {"episodes": 4, "return": 1.5, "win_rate": 0.25}}}))
+        players = {"baseline": {"elo": 1000, "games": 4, "wins": 1, "kind": "checkpoint", "by_mode": {"duels_sword": 1000}},
+                   "round-0": {"elo": 1100, "games": 4, "wins": 3, "kind": "checkpoint", "by_mode": {"duels_sword": 1100}},
+                   "arena-bots": {"elo": 1000, "games": 8, "wins": 4, "kind": "scripted", "by_mode": {}}}
+        matches = [{"t": 2, "mode": "duels_sword", "a": "round-0", "b": "arena-bots", "winner": "round-0", "score": "3/4 wins, return 2.5"},
+                   {"t": 1, "mode": "duels_sword", "a": "baseline", "b": "arena-bots", "winner": None, "score": "1/4 wins, return -0.5"}]
+        (runs / "league.json").write_text(json.dumps({"players": players, "matches": matches}))
+        good = "https://github.com/bward-dev1/vpt-arena/releases/download/round-0/clip-duels_sword.mp4"
+        (runs / "cloud_status.json").write_text(json.dumps({
+            "updated": 1, "repo": "https://github.com/bward-dev1/vpt-arena", "releases": ["round-0", "baseline"],
+            "clips": {"round-0": {"duels_sword": good, "survival": "http://evil.example/x.mp4"}},
+            "jobs": [{"name": "w", "platform": "github-actions", "state": "running", "started": "2026-11-21T18:24:20Z"}]}))
+        self.a = Arena(self.tmp)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_rounds(self):
+        r = self.a.api_rounds()["rounds"]
+        self.assertEqual([x["tag"] for x in r], ["baseline", "round-0"])
+        self.assertAlmostEqual(r[1]["modes"]["duels_sword"]["win_rate"], 0.75)
+        self.assertEqual(r[0]["modes"]["duels_sword"]["return"], -0.5)
+
+    def test_workers(self):
+        w = self.a.api_workers()["workers"]
+        self.assertEqual(w[0]["job"], "r1-w01")
+        self.assertEqual(w[0]["round"], 1)
+        self.assertEqual(w[0]["per_mode"]["duels_sword"]["win_rate"], 0.25)
+
+    def test_clips_and_cloud(self):
+        c = self.a.api_cloud()
+        self.assertEqual(c["jobs"][0]["platform"], "github-actions")
+        self.assertIsInstance(c["jobs"][0]["started"], float)
+        self.assertEqual(list(c["clips"]["round-0"]), ["duels_sword"])   # non-github URL dropped
+        clips = self.a.api_clips()
+        self.assertEqual([x["mode"] for x in clips], ["duels_sword"])
+        m = {x["key"]: x for x in self.a.api_modes()["modes"]}
+        self.assertEqual(m["duels_sword"]["clip"]["tag"], "round-0")
+        self.assertIsNone(m["survival"]["clip"])
+
+    def test_public_snapshot_passes_scrub(self):
+        from tools import publish_site as ps
+        snap = ps.build_snapshot(self.tmp)
+        self.assertEqual(ps.check_text("snap", json.dumps(snap)), [])
+        self.assertTrue(snap["rounds"]["rounds"])
+        self.assertTrue(snap["workers"]["workers"])
+
+
 class EmptyRootTest(unittest.TestCase):
     def test_empty_root(self):
         tmp = Path(tempfile.mkdtemp(prefix="vpt-site-empty-"))
@@ -311,7 +370,7 @@ class EmptyRootTest(unittest.TestCase):
         port = srv.server_address[1]
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         try:
-            for p in ("overview", "modes", "runs", "data", "league", "live"):
+            for p in ("overview", "modes", "runs", "data", "league", "live", "cloud", "rounds", "workers", "clips"):
                 with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/{p}") as r:
                     self.assertEqual(r.status, 200)
                     json.loads(r.read())

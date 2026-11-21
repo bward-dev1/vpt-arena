@@ -21,6 +21,7 @@ jobs:
           - "kitpvp,capture_the_wool,spleef,tnt_run,parkour_duel"
     env:
       GH_TOKEN: ${{ github.token }}
+      LP_NUM_THREADS: "2"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

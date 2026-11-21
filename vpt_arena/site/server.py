@@ -57,6 +57,23 @@ def read_jsonl(path):
     return rows
 
 
+TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+SCORE_RE = re.compile(r"(\d+)/(\d+) wins, return (-?[0-9.]+(?:e-?\d+)?)")
+
+
+def to_ts(v):
+    """Unix seconds from a number or an ISO-8601 string; None otherwise."""
+    if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) != float("inf"):
+        return v
+    if isinstance(v, str):
+        try:
+            from datetime import datetime, timezone
+            return datetime.fromisoformat(v.replace("Z", "+00:00")).astimezone(timezone.utc).timestamp()
+        except ValueError:
+            return None
+    return None
+
+
 def num(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) != float("inf")
 
@@ -360,24 +377,117 @@ class Arena:
     def api_cloud(self):
         d = read_json(self.root / "runs" / "cloud_status.json", None)
         if not isinstance(d, dict):
-            return {"updated": None, "jobs": []}
+            return {"updated": None, "jobs": [], "releases": [], "clips": {}, "repo": None}
         jobs = []
         for j in (d.get("jobs") if isinstance(d.get("jobs"), list) else []):
             if not isinstance(j, dict):
                 continue
             st = j.get("state") if j.get("state") in ("queued", "running", "finished", "failed", "stopped") else "queued"
-            pf = j.get("platform") if j.get("platform") in ("colab", "kaggle", "local") else "local"
+            pf = j.get("platform") if j.get("platform") in ("colab", "kaggle", "local", "github-actions") else "local"
             jobs.append({"name": str(j.get("name", "")), "platform": pf, "hardware": str(j.get("hardware") or ""),
-                         "state": st, "started": j.get("started") if num(j.get("started")) else None,
-                         "updated": j.get("updated") if num(j.get("updated")) else None,
+                         "state": st, "started": to_ts(j.get("started")),
+                         "updated": to_ts(j.get("updated")),
                          "progress": str(j.get("progress") or ""),
                          "run": j.get("run") if isinstance(j.get("run"), str) and NAME_RE.match(j["run"].split("/")[-1]) else None})
-        return {"updated": d.get("updated") if num(d.get("updated")) else None, "jobs": jobs}
+        rels = [r for r in (d.get("releases") if isinstance(d.get("releases"), list) else []) if isinstance(r, str) and TAG_RE.match(r)]
+        clips = {}
+        if isinstance(d.get("clips"), dict):
+            for tag, mm in d["clips"].items():
+                if isinstance(mm, dict) and TAG_RE.match(str(tag)):
+                    ok = {str(m): u for m, u in mm.items() if isinstance(u, str) and u.startswith("https://github.com/") and NAME_RE.match(str(m))}
+                    if ok:
+                        clips[str(tag)] = ok
+        repo = d.get("repo") if isinstance(d.get("repo"), str) and d["repo"].startswith("https://github.com/") else None
+        return {"updated": d.get("updated") if num(d.get("updated")) else None, "jobs": jobs,
+                "releases": rels, "clips": clips, "repo": repo}
+
+    def newest_clip(self, cloud, mode):
+        for tag in cloud["releases"] + [t for t in cloud["clips"] if t not in cloud["releases"]]:
+            u = cloud["clips"].get(tag, {}).get(mode)
+            if u:
+                return {"tag": tag, "url": u}
+        return None
+
+    def api_clips(self, n=6):
+        cloud = self.api_cloud()
+        names = {m["key"]: m["name"] for m in self.modes}
+        out, seen = [], set()
+        for tag in cloud["releases"] + [t for t in cloud["clips"] if t not in cloud["releases"]]:
+            for mode, url in sorted(cloud["clips"].get(tag, {}).items()):
+                if mode not in seen and len(out) < n:
+                    seen.add(mode)
+                    out.append({"tag": tag, "mode": mode, "name": names.get(mode, mode), "url": url})
+        return out
+
+    # -- rounds: per release, per mode win rate and return (parsed from league match scores)
+    def api_rounds(self):
+        players, matches = self.league()
+        tags = {p["name"]: p for p in players if p["kind"] == "checkpoint"}
+        latest = {}
+        for m in matches:            # sorted newest first; keep the newest result per (release, mode)
+            tag, mode = m.get("a"), m.get("mode")
+            if tag in tags and isinstance(mode, str) and (tag, mode) not in latest:
+                mt = SCORE_RE.search(str(m.get("score") or ""))
+                if mt:
+                    n = int(mt.group(2))
+                    latest[(tag, mode)] = {"episodes": n, "wins": int(mt.group(1)),
+                                           "win_rate": int(mt.group(1)) / n if n else None, "return": float(mt.group(3))}
+        def order(t):
+            if t == "baseline":
+                return (0, -1, t)
+            mt = re.match(r"^round-(\d+)$", t)
+            return (0, int(mt.group(1)), t) if mt else (1, 0, t)
+        rounds = []
+        for tag in sorted(tags, key=order):
+            per = {mode: v | {"elo": tags[tag]["by_mode"].get(mode)} for (t, mode), v in latest.items() if t == tag}
+            rates = [v["win_rate"] for v in per.values() if v["win_rate"] is not None]
+            rets = [v["return"] for v in per.values()]
+            rounds.append({"tag": tag, "elo": tags[tag]["elo"], "modes": per,
+                           "mean_win_rate": sum(rates) / len(rates) if rates else None,
+                           "mean_return": sum(rets) / len(rets) if rets else None})
+        return {"rounds": rounds, "modes": [m["key"] for m in self.modes]}
+
+    # -- cloud workers: runs/<job>/status.json
+    def api_workers(self):
+        out = []
+        for p in self.run_dirs():
+            st = read_json(p / "status.json", None)
+            if not isinstance(st, dict):
+                continue
+            upd = to_ts(st.get("updated"))
+            if upd is None:
+                try:
+                    upd = (p / "status.json").stat().st_mtime
+                except OSError:
+                    upd = None
+            state = st.get("state") if isinstance(st.get("state"), str) else "queued"
+            if state == "running" and upd and time.time() - upd > 1800:
+                state = "stopped"
+            rnd = st.get("round") if num(st.get("round")) else None
+            if rnd is None:
+                mt = re.match(r"^r(\d+)-", p.name)
+                rnd = int(mt.group(1)) if mt else None
+            pm = {}
+            for k, v in (st.get("per_mode") if isinstance(st.get("per_mode"), dict) else {}).items():
+                if isinstance(v, dict):
+                    pm[str(k)] = {"episodes": int(v["episodes"]) if num(v.get("episodes")) else 0,
+                                  "return": v.get("return") if num(v.get("return")) else None,
+                                  "win_rate": v.get("win_rate") if num(v.get("win_rate")) else None}
+            out.append({"job": p.name, "round": int(rnd) if rnd is not None else None, "state": state,
+                        "modes": [str(m) for m in st.get("modes", [])] if isinstance(st.get("modes"), list) else list(pm),
+                        "iter": st.get("iter") if num(st.get("iter")) else None,
+                        "env_steps": st.get("env_steps") if num(st.get("env_steps")) else None,
+                        "fps": st.get("fps") if num(st.get("fps")) else None,
+                        "minutes_left": st.get("minutes_left") if num(st.get("minutes_left")) else None,
+                        "updated": upd, "per_mode": pm})
+        out.sort(key=lambda w: (-(w["round"] if w["round"] is not None else -1), w["job"]))
+        return {"workers": out}
 
     # -- modes + overview
     def api_modes(self):
         data = self.api_data()["by_mode"]
         players, _ = self.league()
+        cloud = self.api_cloud()
         out = []
         for m in self.modes:
             best = None
@@ -386,7 +496,8 @@ class Arena:
                 if e is not None and (best is None or e > best["elo"]):
                     best = {"name": p["name"], "elo": e}
             d = data.get(m["key"], {"trajectories": 0, "hours": 0.0})
-            out.append({**m, "trajectories": d["trajectories"], "hours": d["hours"], "best_elo": best})
+            out.append({**m, "trajectories": d["trajectories"], "hours": d["hours"], "best_elo": best,
+                        "clip": self.newest_clip(cloud, m["key"])})
         return {"modes": out}
 
     def api_overview(self):
@@ -427,7 +538,8 @@ class Arena:
                 "best_elo": {"name": best_elo["name"], "elo": best_elo["elo"]} if best_elo else None,
                 "live": {"online": live["online"], "state": live["status"].get("state") if live["status"] else None,
                          "age": live["age"]},
-                "modes": len(self.modes), "phases": phases, "cloud": self.api_cloud()}
+                "modes": len(self.modes), "phases": phases, "cloud": self.api_cloud(),
+                "clips": self.api_clips(6)}
 
 
 # --------------------------------------------------------------------------- http
@@ -503,6 +615,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(a.api_league())
             if ep == "live":
                 return self._json(a.api_live())
+            if ep == "rounds":
+                return self._json(a.api_rounds())
+            if ep == "workers":
+                return self._json(a.api_workers())
+            if ep == "clips":
+                return self._json({"clips": a.api_clips(6)})
             if ep == "cloud":
                 return self._json(a.api_cloud())
             if ep == "thumb":
