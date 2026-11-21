@@ -1,0 +1,96 @@
+name: rl-round
+# One RL round: 12 workers (2 modes each, all 23 modes covered) train from the same weights,
+# then aggregate merges them, publishes release round-N and starts round N+1.
+on:
+  workflow_dispatch:
+    inputs:
+      round: {description: "round number", default: "0"}
+      weights_tag: {description: "release tag with global.weights (empty = VPT foundation 1x)", default: ""}
+      minutes: {description: "training minutes per worker", default: "150"}
+      max_rounds: {description: "stop after this many rounds", default: "8"}
+permissions:
+  contents: write
+  actions: write
+concurrency: {group: rl-round, cancel-in-progress: false}
+jobs:
+  worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {job: w01, modes: "duels_sword,duels_classic"}
+          - {job: w02, modes: "duels_uhc,duels_nodebuff"}
+          - {job: w03, modes: "duels_sumo,duels_boxing"}
+          - {job: w04, modes: "duels_bow,duels_combo"}
+          - {job: w05, modes: "build_uhc,the_bridge"}
+          - {job: w06, modes: "bedwars_solo,bedwars_doubles"}
+          - {job: w07, modes: "bedwars_squads,capture_the_wool"}
+          - {job: w08, modes: "skywars_solo,skywars_doubles"}
+          - {job: w09, modes: "uhc,survival_games"}
+          - {job: w10, modes: "kitpvp,spleef"}
+          - {job: w11, modes: "tnt_run,parkour_duel"}
+          - {job: w12, modes: "survival,duels_sword"}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+      JOB: r${{ inputs.round }}-${{ matrix.job }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: "8"}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.10"}
+      - name: Free disk
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+      - name: System packages
+        run: sudo apt-get update -q && sudo apt-get install -y -q xvfb mesa-utils libegl1 libgl1-mesa-dri libglu1-mesa-dev libgl1-mesa-dev
+      - name: Python packages
+        run: |
+          pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -q minestudio attrs psutil "numpy<2"
+      - name: Engine
+        run: python -c "from minestudio.simulator.entry import check_engine; check_engine(skip_confirmation=True)"
+      - name: Weights
+        run: |
+          mkdir -p w
+          curl -sfL -o w/foundation-1x.weights https://openaipublic.blob.core.windows.net/minecraft-rl/models/foundation-model-1x.weights
+          if [ -n "${{ inputs.weights_tag }}" ]; then gh release download "${{ inputs.weights_tag }}" -p global.weights -D w; else cp w/foundation-1x.weights w/global.weights; fi
+          ls -la w
+      - name: Train
+        run: |
+          mkdir -p out/$JOB
+          ( while true; do sleep 300; python cloud/push_status.py out/$JOB || true; done ) &
+          xvfb-run -a -s "-screen 0 1024x768x24" python cloud/rl_job.py --modes "${{ matrix.modes }}" \
+            --weights w/global.weights --prior w/global.weights --minutes "${{ inputs.minutes }}" \
+            --out out/$JOB --round "${{ inputs.round }}" --seed "${{ strategy.job-index }}" 2>&1 | tee out/$JOB/stdout.log | grep -v "^\s*$" | tail -n +1
+          python cloud/push_status.py out/$JOB || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: "${{ env.JOB }}", path: "out/${{ env.JOB }}", retention-days: 7}
+  aggregate:
+    needs: worker
+    if: always()
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.10"}
+      - run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+      - uses: actions/download-artifact@v4
+        with: {path: art}
+      - name: Merge
+        run: python cloud/aggregate.py --inputs art --out global.weights --summary summary.json
+      - name: Release
+        run: |
+          TAG=round-${{ inputs.round }}
+          gh release create "$TAG" global.weights summary.json --title "RL round ${{ inputs.round }}" --notes "Merged policy after RL round ${{ inputs.round }} (all modes)." --prerelease
+      - name: Next round
+        run: |
+          N=$(( ${{ inputs.round }} + 1 ))
+          if [ "$N" -lt "${{ inputs.max_rounds }}" ]; then
+            gh workflow run rl-round.yml -f round=$N -f weights_tag=round-${{ inputs.round }} -f minutes=${{ inputs.minutes }} -f max_rounds=${{ inputs.max_rounds }}
+          fi

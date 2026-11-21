@@ -15,7 +15,7 @@ jobs:
       - name: Python packages
         run: |
           pip install -q torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -q minestudio
+          pip install -q minestudio psutil "numpy<2"
       - name: Engine
         run: python -c "from minestudio.simulator.entry import check_engine; check_engine(skip_confirmation=True)"
       - name: Probe
