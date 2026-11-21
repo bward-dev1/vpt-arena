@@ -108,10 +108,25 @@ def stat(kv, sim_id, status, **extra):
     return obj
 
 
+def sync_cloud_live(kv, st):
+    """Copy the cloud live stream's tunnel URL (branch status-live) into KV once per change."""
+    try:
+        meta = json.loads(gh("api", f"repos/{REPO}/contents/status/live/tunnel.json?ref=status-live"))
+        import base64
+        cur = json.loads(base64.b64decode(meta["content"]))
+    except Exception:
+        return
+    if cur.get("url") and cur.get("url") != st.get("_cloud_live_url"):
+        kv.put_json("livetunnel_cloud", cur)
+        st["_cloud_live_url"] = cur["url"]
+        print(f"cloud live tunnel: {cur['url']}", flush=True)
+
+
 def tick(kv, st):
+    sync_cloud_live(kv, st)
     index = kv.get_json("simindex") or []
     rels = releases()
-    active = [i for i, s in st.items() if s.get("status") in ("dispatched", "running")]
+    active = [i for i, s in st.items() if not i.startswith("_") and s.get("status") in ("dispatched", "running")]
     # newest last so older requests go first
     for entry in reversed(index[:40]):
         sid = entry.get("id")
@@ -190,6 +205,8 @@ def tick(kv, st):
     # forget old finished entries
     keep = {e.get("id") for e in index}
     for sid in list(st):
+        if sid.startswith("_"):
+            continue
         if sid not in keep and st[sid].get("status") in ("done", "failed"):
             del st[sid]
 

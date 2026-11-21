@@ -1,0 +1,50 @@
+name: live-stream
+# Always-on live view: the newest model plays the arena modes; view + keys served via a quick tunnel.
+# Runs ~5.7 h, then starts its own successor.
+on:
+  workflow_dispatch:
+    inputs:
+      minutes: {description: "how long this run streams", default: "340"}
+permissions:
+  contents: write
+  actions: write
+concurrency: {group: live-stream, cancel-in-progress: false}
+jobs:
+  stream:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+      LP_NUM_THREADS: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.10"}
+      - name: System packages
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q openjdk-8-jdk xvfb mesa-utils libegl1 libgl1-mesa-dri libglu1-mesa-dev libgl1-mesa-dev
+          echo "JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64" >> $GITHUB_ENV
+          echo "/usr/lib/jvm/java-8-openjdk-amd64/bin" >> $GITHUB_PATH
+          curl -sfL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && chmod +x cloudflared
+      - name: Python packages
+        run: |
+          pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -q minestudio attrs psutil "numpy<2"
+      - name: Engine
+        run: python -c "from minestudio.simulator.entry import check_engine; check_engine(skip_confirmation=True)"
+      - name: Weights
+        run: |
+          mkdir -p w
+          TAG=$(gh release list --json tagName -q '[.[].tagName | select(startswith("round-"))] | sort_by(ltrimstr("round-") | tonumber) | last // "baseline"')
+          echo "TAG=$TAG" >> $GITHUB_ENV
+          if [ "$TAG" = "baseline" ]; then curl -sfL -o w/model.weights https://openaipublic.blob.core.windows.net/minecraft-rl/models/foundation-model-1x.weights;
+          else gh release download "$TAG" -p global.weights -O w/model.weights; fi
+      - name: Stream
+        run: |
+          mkdir -p live
+          ( last=""; while true; do sleep 20; if [ -f live/tunnel.json ]; then cur=$(cat live/tunnel.json); if [ "$cur" != "$last" ]; then python cloud/push_status.py live >/dev/null 2>&1 && last="$cur"; fi; fi; done ) &
+          xvfb-run -a -s "-screen 0 1024x768x24" python cloud/live_stream.py --weights w/model.weights --tag "$TAG" --minutes "${{ inputs.minutes }}" --out live
+      - name: Next stream
+        if: ${{ !cancelled() }}
+        run: gh workflow run live-stream.yml -f minutes=${{ inputs.minutes }}
