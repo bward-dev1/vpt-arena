@@ -76,7 +76,17 @@ def main():
                                                                          "finished" if r.get("conclusion") == "success" else "failed"),
                "started": r["createdAt"], "updated": None, "progress": r.get("conclusion") or r["status"], "run": None}
               for r in runs[:3]]
-    out = {"updated": time.time(), "jobs": rounds + sorted(jobs, key=lambda j: j["name"]), "releases": rels}
+    clips = {}
+    for tag in rels:
+        try:
+            assets = api(f"repos/{REPO}/releases/tags/{tag}").get("assets", [])
+        except RuntimeError:
+            continue
+        for a in assets:
+            if a["name"].startswith("clip-") and a["name"].endswith(".mp4"):
+                clips.setdefault(tag, {})[a["name"][5:-4]] = a["browser_download_url"]
+    out = {"updated": time.time(), "jobs": rounds + sorted(jobs, key=lambda j: j["name"]), "releases": rels,
+           "clips": clips, "repo": f"https://github.com/{REPO}"}
     build_league(rels)
     tmp = RUNS / "cloud_status.json.tmp"
     tmp.write_text(json.dumps(out, indent=1))
@@ -91,9 +101,16 @@ def build_league(rels):
     cache.mkdir(exist_ok=True)
     players, matches = {}, []
     for tag in rels:
-        f = cache / f"{tag}.json"
+        try:
+            assets = {a["name"]: a for a in api(f"repos/{REPO}/releases/tags/{tag}").get("assets", [])}
+        except RuntimeError:
+            continue
+        if "eval.json" not in assets:
+            continue
+        stamp = assets["eval.json"]["updated_at"].replace(":", "")
+        f = cache / f"{tag}-{stamp}.json"
         if not f.exists():
-            r = subprocess.run(["gh", "release", "download", tag, "-R", REPO, "-p", "eval.json", "-O", str(f)],
+            r = subprocess.run(["gh", "release", "download", tag, "-R", REPO, "-p", "eval.json", "-O", str(f), "--clobber"],
                                capture_output=True, text=True, timeout=120)
             if r.returncode != 0:
                 continue
