@@ -160,12 +160,19 @@ class ArenaSimEnv:
         if t.sky:
             x0 = 3000 + 160 * (self.episode % 50) + 4000 * (self.seed % 5)
             z0 = 3000 + 160 * (self.episode // 50) + 4000 * (self.seed // 5)
+            # Slow Falling while the arena is built: the player drops a little before the floor exists,
+            # and /tp doesn't reset fall distance, which used to cost 5-12 HP on landing.
+            self._cmd("/effect clear @p")
+            self._cmd("/effect give @p minecraft:slow_falling 10 0 true")
             self._cmd(f"/tp @p {x0} {Y} {z0} -90 0")
-            # build at absolute coordinates straight away, so the player can't fall before the floor exists
             for c in t.setup:
+                if c.strip() == "/effect clear @p":
+                    continue  # would remove Slow Falling; effects were cleared above
                 self._cmd(absolutize(c, x0, Y, z0))
             self._idle(6)  # chunk + block updates
-            self._cmd(f"/tp @p {x0} {Y} {z0} -90 0")  # back to the exact spot and facing; resets fall distance
+            self._cmd(f"/tp @p {x0} {Y} {z0} -90 0")  # back to the exact spot and facing
+            self._idle(3)
+            self._cmd("/effect clear @p minecraft:slow_falling")
             self._cmd("/effect give @p minecraft:instant_health 1 3 true")
             for c in t.opponents:
                 self._cmd(absolutize(c, x0, Y, z0))
