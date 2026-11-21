@@ -38,10 +38,13 @@ class ClipWriter:
             self.n += 1
 
     def close(self):
+        import shutil
         self.w.release()
-        if self.n:
+        if self.n and shutil.which("ffmpeg"):
             subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(self.raw), "-c:v", "libx264", "-pix_fmt",
                             "yuv420p", "-crf", "28", "-movflags", "+faststart", str(self.path)], check=False)
+        elif self.n:
+            print("ffmpeg missing: clip skipped", flush=True)
         self.raw.unlink(missing_ok=True)
 
 
