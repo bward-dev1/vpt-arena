@@ -76,7 +76,7 @@ def main():
                                                                          "finished" if r.get("conclusion") == "success" else "failed"),
                "started": r["createdAt"], "updated": None, "progress": r.get("conclusion") or r["status"], "run": None}
               for r in runs[:3]]
-    clips = {}
+    clips, clips60 = {}, {}
     for tag in rels:
         try:
             assets = api(f"repos/{REPO}/releases/tags/{tag}").get("assets", [])
@@ -85,8 +85,10 @@ def main():
         for a in assets:
             if a["name"].startswith("clip-") and a["name"].endswith(".mp4"):
                 clips.setdefault(tag, {})[a["name"][5:-4]] = a["browser_download_url"]
+            elif a["name"].startswith("clip60-") and a["name"].endswith(".mp4"):
+                clips60.setdefault(tag, {})[a["name"][7:-4]] = a["browser_download_url"]
     out = {"updated": time.time(), "jobs": rounds + sorted(jobs, key=lambda j: j["name"]), "releases": rels,
-           "clips": clips, "repo": f"https://github.com/{REPO}"}
+           "clips": clips, "clips60": clips60, "repo": f"https://github.com/{REPO}"}
     build_league(rels)
     tmp = RUNS / "cloud_status.json.tmp"
     tmp.write_text(json.dumps(out, indent=1))

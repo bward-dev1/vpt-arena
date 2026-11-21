@@ -41,7 +41,7 @@ def main():
     for ep in range(spec["episodes"]):
         frame = env.reset()
         agent.reset()
-        clip = ClipWriter(out / f"ep{ep}.mp4", max_frames=spec["seconds"] * 10 + 20)
+        clip = ClipWriter(out / f"ep{ep}.mp4", max_frames=spec["seconds"] * 20 + 40)
         dmg0 = _num(env.prev.get("damage_dealt"))
         kills0 = stat(env.prev, "kill_entity", task.opponent_types)
         done, ret, n, info = False, 0.0, 0, {}
@@ -50,7 +50,7 @@ def main():
             frame, r, done, info = env.step(a)
             ret += r
             n += 1
-            if n % 2 == 0 and getattr(env, "last_pov", None) is not None:
+            if getattr(env, "last_pov", None) is not None:
                 clip.add(env.last_pov)
         clip.close()
         episodes.append({"return": round(ret, 3), "won": bool(info.get("won")), "died": bool(info.get("died")),

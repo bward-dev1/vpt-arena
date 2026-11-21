@@ -29,6 +29,8 @@ VERCEL_JSON = {
         {"source": "/sims/:path*", "destination": f"{BACKEND}/sims/:path*"},
         {"source": "/api/:path*", "destination": f"{BACKEND}/api/:path*"},
         {"source": "/live/:path*", "destination": f"{BACKEND}/live/:path*"},
+        {"source": "/trailer.mp4", "destination": f"{BACKEND}/trailer.mp4"},
+        {"source": "/trailer-vertical.mp4", "destination": f"{BACKEND}/trailer-vertical.mp4"},
     ],
     "headers": [
         {"source": "/(.*)\\.(js|css)", "headers": [{"key": "cache-control", "value": "public, max-age=300"}]},

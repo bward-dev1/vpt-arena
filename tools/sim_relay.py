@@ -191,6 +191,10 @@ def tick(kv, st):
                 if clip.exists() and clip.stat().st_size < 20_000_000:
                     kv.put_bytes(f"simclip:{sid}:{i}", clip.read_bytes())
                     ep["clip"] = True
+                    c60 = tmp / f"ep{i}_60.mp4"
+                    if c60.exists() and c60.stat().st_size < 24_000_000:
+                        kv.put_bytes(f"simclip60:{sid}:{i}", c60.read_bytes())
+                        ep["clip60"] = True
                 else:
                     ep["clip"] = False
             res.pop("spec", None)

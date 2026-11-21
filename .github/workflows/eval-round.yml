@@ -74,8 +74,8 @@ jobs:
             gh release view baseline >/dev/null 2>&1 || gh release create baseline --title "Baseline: VPT foundation 1x" --notes "Evaluation of the unmodified VPT foundation 1x model on all modes." --prerelease
           fi
           gh release upload "$TAG" eval.json --clobber
-          CLIPS=$(find art -name "*.mp4" | head -40)
+          CLIPS=$(find art -name "*.mp4" | head -60)
           if [ -n "$CLIPS" ]; then
-            mkdir -p up && for f in $CLIPS; do cp "$f" "up/clip-$(basename "$f")"; done
+            mkdir -p up && for f in $CLIPS; do b=$(basename "$f" .mp4); case "$b" in *_60) cp "$f" "up/clip60-${b%_60}.mp4";; *) cp "$f" "up/clip-$b.mp4";; esac; done
             gh release upload "$TAG" up/*.mp4 --clobber
           fi
