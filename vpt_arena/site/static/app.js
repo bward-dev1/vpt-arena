@@ -1,27 +1,37 @@
 "use strict";
-/* VPT Arena dashboard. Hash routing, no dependencies. */
+/* VPT Arena site core: helpers, data access, charts, icons, clips, router. Pages live in pages-*.js, start-up in boot.js. */
 const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
 const view = $("#view");
-const PAGES = [["overview", "Overview"], ["modes", "Modes"], ["training", "Training"], ["data", "Data"],
-  ["league", "League"], ["live", "Live"], ["docs", "Docs"]];
+const PAGES = [["overview", "Overview"], ["dashboard", "Dashboard"], ["simulate", "Simulate"], ["training", "Training"], ["modes", "Modes"],
+  ["league", "League"], ["data", "Data"], ["live", "Live"], ["docs", "Docs"]];
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const trimZ = t => t.includes(".") ? t.replace(/0+$/, "").replace(/\.$/, "") : t;
 const fmt = (v, d = 3) => v == null || !isFinite(v) ? "-" : Math.abs(v) >= 1000 ? Number(v).toLocaleString(undefined, { maximumFractionDigits: 1 }) : trimZ(Number(v).toPrecision(Math.max(d, 1)));
 const fmtN = (v, d = 1) => v == null || !isFinite(v) ? "-" : Number(v).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
 const fmtH = h => h == null ? "-" : h >= 10 ? h.toFixed(1) : h >= 0.01 ? h.toFixed(2) : h === 0 ? "0" : Number(h.toPrecision(2)).toString();
+const big = v => v == null || !isFinite(v) ? "-" : Math.abs(v) >= 1e6 ? trimZ((v / 1e6).toFixed(2)) + "M" : Math.abs(v) >= 1e4 ? trimZ((v / 1e3).toFixed(1)) + "k" : Math.round(v).toLocaleString();
+const pct = v => v == null ? "-" : Math.round(v * 100) + "%";
 const ago = ts => { if (!ts) return "-"; const s = Date.now() / 1000 - ts; if (s < 90) return Math.max(0, Math.round(s)) + " s ago"; if (s < 5400) return Math.round(s / 60) + " min ago"; if (s < 129600) return Math.round(s / 3600) + " h ago"; return new Date(ts * 1000).toLocaleDateString(); };
+const when = ts => ts ? new Date(ts * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "-";
+const clock = ts => ts ? new Date(ts * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "-";
+const span = sec => { sec = Math.max(0, Math.round(sec)); const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60; return h ? `${h} h ${String(m).padStart(2, "0")} min` : m ? `${m} min ${String(s).padStart(2, "0")} s` : `${s} s`; };
 const SRC_NAMES = { human: "Human", idm: "IDM-labelled", contractor: "Contractor", other: "Other" };
+const REPO_URL = "https://github.com/bward-dev1/vpt-arena";
 
-/* Static mode (public site): window.VPT_STATIC is set in dist/index.html and all data
-   comes from one snapshot at /data.json instead of /api/*. */
+/* ---------- data: one snapshot on the public site, /api/* locally ---------- */
 const STATIC = !!window.VPT_STATIC;
-let snap = null, snapT = 0;
-async function snapshot() {
-  if (!snap || Date.now() - snapT > 30000) {
-    const r = await fetch("/data.json", { cache: "no-store" });
+let snap = null, snapT = 0, snapP = null;
+async function snapshot(force) {
+  if (snap && !force && Date.now() - snapT < 30000) return snap;
+  if (!snapP) snapP = (async () => {
+    let r = null;
+    if (window.VPT_EARLY) { try { r = await window.VPT_EARLY; } catch (e) { r = null; } window.VPT_EARLY = null; }
+    if (!r || !r.ok) r = await fetch("/data.json", { cache: "no-store" });
     if (!r.ok) throw new Error("no data published yet");
-    snap = await r.json(); snapT = Date.now();
-  }
-  return snap;
+    snap = await r.json(); snapT = Date.now(); return snap;
+  })().finally(() => { snapP = null; });
+  return snapP;
 }
 async function api(path) {
   if (STATIC) {
@@ -37,12 +47,11 @@ async function api(path) {
   stamp(Date.now() / 1000);
   return r.json();
 }
-const when = ts => ts ? new Date(ts * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "-";
 let stampTs = null;
 function stamp(ts) {
   stampTs = ts;
-  const f = document.getElementById("stamp");
-  if (f) f.textContent = ts ? "Last updated " + when(ts) : "";
+  const f = $("#stamp");
+  if (f) f.textContent = ts ? "Data updated " + when(ts) : "";
   paintPill();
 }
 function paintPill() {
@@ -52,22 +61,60 @@ function paintPill() {
   p.className = "pill " + (fresh ? "on" : "off");
   $("span", p).textContent = stampTs ? "Updated " + ago(stampTs) : "no data yet";
 }
-
-let timers = [];
+let timers = [], cleanups = [];
 function every(ms, fn) { timers.push(setInterval(fn, ms)); }
-function clearTimers() { timers.forEach(clearInterval); timers = []; }
+function onLeave(fn) { cleanups.push(fn); }
+function clearTimers() { timers.forEach(clearInterval); timers = []; cleanups.forEach(f => { try { f(); } catch (e) { /* ignore */ } }); cleanups = []; window.fsHook = null; }
+const modeMap = async () => Object.fromEntries((await api("/api/modes")).modes.map(m => [m.key, m]));
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-/* ---------- charts ---------- */
+/* ---------- pixel icons (one bitmap per mode family; # = ink, a = accent, b = warm) ---------- */
+const BITMAPS = {
+  sword: ["......##", ".....###", "....###.", "#..###..", ".####...", "..##....", ".b.#....", "b......."],
+  swords: ["#......#", "##....##", ".##..##.", "..####..", "..####..", ".##..##.", "bb....bb", "b......b"],
+  heart: [".##..##.", "########", "########", "########", ".######.", "..####..", "...##...", "........"],
+  apple: ["....a...", "...a....", ".##.##..", "######..", "######..", "######..", ".####...", "..##...."],
+  potion: ["..####..", "...##...", "...##...", "..####..", ".######.", ".#aaaa#.", ".######.", "..####.."],
+  ring: ["..####..", ".#....#.", "#......#", "#..aa..#", "#..aa..#", "#......#", ".#....#.", "..####.."],
+  glove: ["..####..", ".######.", "########", "########", "########", ".#####..", "..bbbb..", "..bbbb.."],
+  bow: ["###.....", "..##....", "...#.#..", "...#..#.", "...#..#.", "...#.#..", "..##....", "###....."],
+  bolt: ["....###.", "...###..", "..###...", ".######.", "...###..", "..##....", ".##.....", "##......"],
+  block: ["########", "#......#", "#.####.#", "#.#aa#.#", "#.#aa#.#", "#.####.#", "#......#", "########"],
+  bed: ["........", ".aa.....", ".aa.....", "########", "########", "########", "#......#", "#......#"],
+  cloud: ["........", "...###..", "..#####.", ".#######", "########", ".######.", "..b..b..", ".b..b..."],
+  bridge: ["........", "........", "########", "########", ".#....#.", ".#....#.", ".#....#.", ".#....#."],
+  crown: ["#..#..#.", "##.##.##", "########", "########", ".######.", "........", "........", "........"],
+  flag: ["#.......", "#aaaaaa.", "#aaaaa..", "#aaaaaa.", "#.......", "#.......", "#.......", "#......."],
+  shovel: [".....###", "....###.", "...##...", "..##....", ".##.....", "###.....", "##b.....", "........"],
+  tnt: [".....a..", "....a...", "########", "#......#", "#.#.#.##", "#......#", "#######.", "........"],
+  boot: [".####...", ".####...", ".####...", ".####...", ".####...", ".#######", "########", "########"],
+  grid: ["#.#.#.#.", ".#.#.#.#", "#.#.#.#.", ".#.#.#.#", "#.#.#.#.", ".#.#.#.#", "#.#.#.#.", ".#.#.#.#"],
+};
+const MODE_ICON = { survival: "heart", duels_sword: "sword", duels_classic: "swords", duels_uhc: "apple", duels_nodebuff: "potion", duels_sumo: "ring",
+  duels_boxing: "glove", duels_bow: "bow", duels_combo: "bolt", build_uhc: "block", bedwars_solo: "bed", bedwars_doubles: "bed", bedwars_squads: "bed",
+  skywars_solo: "cloud", skywars_doubles: "cloud", the_bridge: "bridge", uhc: "apple", survival_games: "crown", kitpvp: "swords",
+  capture_the_wool: "flag", spleef: "shovel", tnt_run: "tnt", parkour_duel: "boot" };
+const ICON_CACHE = {};
+function pixelIcon(name, size = 28) {
+  const bm = BITMAPS[name] || BITMAPS.grid, h = bm.length, w = bm[0].length, key = name + size;
+  if (ICON_CACHE[key]) return ICON_CACHE[key];
+  const g = { "#": "", a: "", b: "" };
+  bm.forEach((row, y) => [...row].forEach((c, x) => { if (g[c] !== undefined) g[c] += `M${x} ${y}h1v1h-1z`; }));
+  const out = `<svg class="px" width="${size}" height="${size}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges" aria-hidden="true"><path d="${g["#"]}" fill="currentColor"/><path d="${g.a}" fill="var(--accent)"/><path d="${g.b}" fill="var(--warn)"/></svg>`;
+  return (ICON_CACHE[key] = out);
+}
+const modeIcon = (key, size) => pixelIcon(MODE_ICON[key] || "grid", size);
+
+/* ---------- charts (hand-written SVG) ---------- */
 const COLORS = ["--s1", "--s2", "--s3", "--s4", "--s5", "--s6"];
 function niceTicks(lo, hi, n = 4) {
   if (lo === hi) { const p = Math.abs(lo) || 1; lo -= p * .5; hi += p * .5; }
-  const span = hi - lo, raw = span / n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const sp = hi - lo, raw = sp / n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
   const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw) || raw;
   const a = Math.floor(lo / step) * step, b = Math.ceil(hi / step) * step, t = [];
   for (let v = a; v <= b + step / 1e6; v += step) t.push(+v.toPrecision(12));
   return t;
 }
-const trimZ = t => t.includes(".") ? t.replace(/0+$/, "").replace(/\.$/, "") : t;
 const tickFmt = v => { const a = Math.abs(v); if (a >= 1e6) return trimZ((v / 1e6).toPrecision(3)) + "M"; if (a >= 1e4) return trimZ((v / 1e3).toPrecision(3)) + "k"; if (a !== 0 && a < 0.001) return v.toExponential(0); return String(+v.toPrecision(4)); };
 
 function lineChart(points, color, opts = {}) {
@@ -79,18 +126,18 @@ function lineChart(points, color, opts = {}) {
   const sx = x => m.l + (xhi === xlo ? .5 : (x - xlo) / (xhi - xlo)) * (W - m.l - m.r);
   const sy = y => H - m.b - (yhi === ylo ? .5 : (y - ylo) / (yhi - ylo)) * (H - m.t - m.b);
   const xt = niceTicks(xlo, xhi, 4).filter(v => v >= xlo - 1e-9 && v <= xhi + 1e-9);
-  let d = points.map((p, i) => (i ? "L" : "M") + sx(p[0]).toFixed(1) + " " + sy(p[1]).toFixed(1)).join("");
+  const d = points.map((p, i) => (i ? "L" : "M") + sx(p[0]).toFixed(1) + " " + sy(p[1]).toFixed(1)).join("");
+  const area = d + `L${sx(xhi).toFixed(1)} ${sy(ylo).toFixed(1)}L${sx(xlo).toFixed(1)} ${sy(ylo).toFixed(1)}Z`;
   const grid = yt.map(v => `<line class="gl" x1="${m.l}" x2="${W - m.r}" y1="${sy(v)}" y2="${sy(v)}"/><text x="${m.l - 6}" y="${sy(v) + 4}" text-anchor="end">${tickFmt(v)}</text>`).join("");
   const xl = xt.map(v => `<text x="${sx(v)}" y="${H - 6}" text-anchor="middle">${tickFmt(v)}</text>`).join("");
   const dot = points.length <= 40 ? points.map(p => `<circle cx="${sx(p[0])}" cy="${sy(p[1])}" r="2.5" fill="var(${color})"/>`).join("") : "";
-  const id = "c" + Math.random().toString(36).slice(2, 8);
-  return `<svg class="ch" id="${id}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.label || "chart")}" data-pts='${JSON.stringify(points.map(p => [+p[0].toPrecision(8), +p[1].toPrecision(6)]))}' data-geo="${[m.l, W - m.r, m.t, H - m.b, xlo, xhi, ylo, yhi].join(",")}">
-    ${grid}${xl}<path class="ln" d="${d}" style="stroke:var(${color})"/>${dot}
+  return `<svg class="ch" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.label || "chart")}" data-pts='${JSON.stringify(points.map(p => [+p[0].toPrecision(8), +p[1].toPrecision(6)]))}' data-geo="${[m.l, W - m.r, m.t, H - m.b, xlo, xhi, ylo, yhi].join(",")}">
+    ${grid}${xl}<path class="ar" d="${area}" style="fill:var(${color})"/><path class="ln" pathLength="1" d="${d}" style="stroke:var(${color})"/>${dot}
     <g class="hv" style="display:none"><line class="gl" y1="${m.t}" y2="${H - m.b}" style="stroke:var(--line2)"/><circle r="4" fill="var(${color})" stroke="var(--panel)" stroke-width="2"/><g class="tip"><rect rx="6" height="22" fill="var(--panel2)" stroke="var(--line2)"/><text y="15" x="8" style="fill:var(--text)"></text></g></g>
     <rect class="hit" x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" fill="transparent"/></svg>`;
 }
 function wireCharts(root) {
-  root.querySelectorAll("svg.ch[data-pts]").forEach(svg => {
+  $$("svg.ch[data-pts]", root).forEach(svg => {
     const pts = JSON.parse(svg.dataset.pts), [l, r, t, b, xlo, xhi, ylo, yhi] = svg.dataset.geo.split(",").map(Number);
     const hv = $(".hv", svg), line = $("line", hv), c = $("circle", hv), tipg = $(".tip", hv), rect = $("rect", tipg), txt = $("text", tipg);
     const move = e => {
@@ -110,390 +157,241 @@ function wireCharts(root) {
   });
 }
 function barList(rows, max) {
-  return rows.map(([k, v, label]) => `<div style="display:grid;grid-template-columns:minmax(80px,1fr) 2fr auto;gap:10px;align-items:center;margin:6px 0"><span style="overflow-wrap:anywhere">${esc(k)}</span><div class="bar"><i style="width:${Math.max(0, Math.min(100, v / max * 100))}%"></i></div><span class="mono">${esc(label)}</span></div>`).join("");
+  return rows.map(([k, v, label]) => `<div class="bl"><span>${esc(k)}</span><div class="bar"><i style="width:${Math.max(0, Math.min(100, v / max * 100))}%"></i></div><span class="mono">${esc(label)}</span></div>`).join("");
 }
-
 const DASH = ["", "", "", "", "", "", "6 3", "6 3", "6 3", "6 3", "6 3", "6 3", "2 3", "2 3", "2 3", "2 3", "2 3", "2 3"];
-function multiChart(series, label) {
-  const W = 480, H = 220, m = { l: 46, r: 12, t: 10, b: 24 };
+/* series: {name: [[x,y],...]} with numeric x. opts.xLabels maps x to a label (categorical axes). Hover shows every series at the nearest x. */
+function multiChart(series, label, opts = {}) {
+  const W = 480, H = opts.h || 220, m = { l: 46, r: 14, t: 10, b: 26 };
   const names = Object.keys(series).filter(k => series[k].length);
   if (!names.length) return `<div class="empty">No data yet.</div>`;
   const all = names.flatMap(k => series[k]);
   const xs = all.map(p => p[0]), ys = all.map(p => p[1]);
   const xlo = Math.min(...xs), xhi = Math.max(...xs);
-  const yt = niceTicks(Math.min(...ys), Math.max(...ys)), ylo = yt[0], yhi = yt[yt.length - 1];
+  const yt = opts.yRange ? niceTicks(opts.yRange[0], opts.yRange[1]) : niceTicks(Math.min(...ys), Math.max(...ys)), ylo = yt[0], yhi = yt[yt.length - 1];
   const sx = x => m.l + (xhi === xlo ? .5 : (x - xlo) / (xhi - xlo)) * (W - m.l - m.r);
   const sy = y => H - m.b - (yhi === ylo ? .5 : (y - ylo) / (yhi - ylo)) * (H - m.t - m.b);
-  const xt = niceTicks(xlo, xhi, 4).filter(v => v >= xlo - 1e-9 && v <= xhi + 1e-9);
-  const grid = yt.map(v => `<line class="gl" x1="${m.l}" x2="${W - m.r}" y1="${sy(v)}" y2="${sy(v)}"/><text x="${m.l - 6}" y="${sy(v) + 4}" text-anchor="end">${tickFmt(v)}</text>`).join("");
-  const xl = xt.map(v => `<text x="${sx(v)}" y="${H - 6}" text-anchor="middle">${tickFmt(v)}</text>`).join("");
+  const xt = opts.xLabels ? Object.keys(opts.xLabels).map(Number) : niceTicks(xlo, xhi, 4).filter(v => v >= xlo - 1e-9 && v <= xhi + 1e-9);
+  const yf = opts.yFmt || tickFmt;
+  const grid = yt.map(v => `<line class="gl" x1="${m.l}" x2="${W - m.r}" y1="${sy(v)}" y2="${sy(v)}"/><text x="${m.l - 6}" y="${sy(v) + 4}" text-anchor="end">${yf(v)}</text>`).join("");
+  const xl = xt.map(v => `<text x="${sx(v)}" y="${H - 7}" text-anchor="middle">${opts.xLabels ? esc(opts.xLabels[v]) : tickFmt(v)}</text>`).join("");
   const paths = names.map((k, i) => {
-    const pts = series[k];
+    const pts = series[k], c = COLORS[i % 6];
     const d = pts.map((p, j) => (j ? "L" : "M") + sx(p[0]).toFixed(1) + " " + sy(p[1]).toFixed(1)).join("");
-    const dot = pts.length === 1 ? `<circle cx="${sx(pts[0][0])}" cy="${sy(pts[0][1])}" r="3" fill="var(${COLORS[i % 6]})"/>` : "";
-    return `<path class="ln" d="${d}" style="stroke:var(${COLORS[i % 6]})" ${DASH[i % 18] ? `stroke-dasharray="${DASH[i % 18]}"` : ""}/>${dot}`;
+    const dots = pts.length <= 12 ? pts.map(p => `<circle cx="${sx(p[0]).toFixed(1)}" cy="${sy(p[1]).toFixed(1)}" r="3" fill="var(${c})"/>`).join("") : "";
+    return `<path class="ln" ${DASH[i % 18] ? "" : 'pathLength="1"'} d="${d}" style="stroke:var(${c})" ${DASH[i % 18] ? `stroke-dasharray="${DASH[i % 18]}"` : ""}/>${dots}`;
   }).join("");
-  const legend = names.map((k, i) => { const last = series[k][series[k].length - 1][1];
-    return `<span class="lg"><i style="background:var(${COLORS[i % 6]})"></i>${esc(k)} <b>${fmt(last, 3)}</b></span>`; }).join("");
-  return `<svg class="ch" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">${grid}${xl}${paths}</svg><div class="legend">${legend}</div>`;
+  const legend = opts.noLegend ? "" : `<div class="legend">${names.map((k, i) => `<span class="lg"><i style="background:var(${COLORS[i % 6]})"></i>${esc(k)} <b>${yf(series[k][series[k].length - 1][1])}</b></span>`).join("")}</div>`;
+  const data = JSON.stringify({ names, series: names.map(k => series[k].map(p => [+p[0].toPrecision(8), +p[1].toPrecision(6)])), g: [m.l, W - m.r, m.t, H - m.b, xlo, xhi, ylo, yhi], xl: opts.xLabels || null });
+  return `<div class="mc"><svg class="ch mch" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}" data-mc='${data.replace(/'/g, "&#39;")}'>${grid}${xl}${paths}<line class="mcl gl" y1="${m.t}" y2="${H - m.b}" style="display:none;stroke:var(--line2)"/><rect class="hit" x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" fill="transparent"/></svg><div class="mtip" hidden></div></div>${legend}`;
+}
+function wireMulti(root) {
+  $$("svg.mch", root).forEach(svg => {
+    const d = JSON.parse(svg.dataset.mc), [l, r, t, b, xlo, xhi] = d.g, line = $(".mcl", svg), tip = svg.parentElement.querySelector(".mtip");
+    const allx = [...new Set(d.series.flat().map(p => p[0]))].sort((a, c) => a - c);
+    const move = e => {
+      const bb = svg.getBoundingClientRect(), vx = (e.clientX - bb.left) / bb.width * 480;
+      const x = xlo + (vx - l) / (r - l) * (xhi - xlo);
+      let best = allx[0]; for (const v of allx) if (Math.abs(v - x) < Math.abs(best - x)) best = v;
+      const px = l + (xhi === xlo ? .5 : (best - xlo) / (xhi - xlo)) * (r - l);
+      line.setAttribute("x1", px); line.setAttribute("x2", px); line.style.display = "";
+      const rows = d.names.map((n, i) => { const p = d.series[i].find(q => q[0] === best); return p ? `<div><i style="background:var(${COLORS[i % 6]})"></i>${esc(n)} <b>${+p[1].toPrecision(4)}</b></div>` : ""; }).join("");
+      tip.innerHTML = `<div class="th">${d.xl && d.xl[best] != null ? esc(d.xl[best]) : tickFmt(best)}</div>${rows}`;
+      tip.hidden = false;
+      const frac = px / 480; tip.style.left = Math.min(Math.max(frac * 100, 18), 82) + "%";
+    };
+    const hit = $(".hit", svg);
+    hit.addEventListener("pointermove", move); hit.addEventListener("pointerdown", move);
+    hit.addEventListener("pointerleave", () => { line.style.display = "none"; tip.hidden = true; });
+  });
+}
+/* tiny trend line for cards */
+function spark(vals, opts = {}) {
+  const W = opts.w || 120, H = opts.h || 34, p = 4, pts = vals.map((v, i) => v == null ? null : [i, v]);
+  const ok = pts.filter(Boolean);
+  if (!ok.length) return `<svg class="spark" viewBox="0 0 ${W} ${H}" aria-hidden="true"><line x1="${p}" x2="${W - p}" y1="${H / 2}" y2="${H / 2}" stroke="var(--line2)" stroke-dasharray="3 4"/></svg>`;
+  const lo = opts.lo ?? Math.min(...ok.map(q => q[1])), hi = opts.hi ?? Math.max(...ok.map(q => q[1])), n = Math.max(vals.length - 1, 1);
+  const sx = i => p + (n ? i / n : .5) * (W - 2 * p), sy = v => H - p - (hi === lo ? .5 : (v - lo) / (hi - lo)) * (H - 2 * p);
+  const d = ok.map((q, j) => (j ? "L" : "M") + sx(q[0]).toFixed(1) + " " + sy(q[1]).toFixed(1)).join("");
+  const last = ok[ok.length - 1];
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" aria-hidden="true">${ok.length > 1 ? `<path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` : ""}${ok.map(q => `<circle cx="${sx(q[0]).toFixed(1)}" cy="${sy(q[1]).toFixed(1)}" r="${q === last ? 3.2 : 2}" fill="${q === last ? "var(--accent)" : "var(--panel)"}" stroke="var(--accent)" stroke-width="1.5"/>`).join("")}</svg>`;
 }
 const placeholderCard = (title, msg) => `<div class="card chart"><h3>${esc(title)}</h3><div class="empty">${esc(msg)}</div></div>`;
 
-const REPO_URL = "https://github.com/bward-dev1/vpt-arena";
-const okUrl = u => typeof u === "string" && u.startsWith("https://github.com/");
+/* ---------- clips: 30 and 60 fps, hover/tap play, fullscreen ---------- */
+const okUrl = u => typeof u === "string" && (u.startsWith("/clips/") || u.startsWith("/clips60/") || u.startsWith("/sims/") || u.startsWith("https://github.com/"));
+const clipSrc = u => u + (u.includes("#") ? "" : "#t=0.1");
+const lsGet = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* private mode */ } };
+const getFps = () => lsGet("vpt-fps", "30") === "60" ? 60 : 30;
+const FS_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>`;
+const fsBtn = `<button type="button" class="vbtn fs-btn" aria-label="Fullscreen" title="Fullscreen (f)">${FS_ICON}</button>`;
+const fpsBtn = (u60) => u60 ? `<button type="button" class="vbtn fps-btn" aria-label="Toggle 30 or 60 fps" title="Frame rate">${getFps()}</button>` : "";
 function clipHtml(c, title) {
-  return `<figure class="clipfig"><div class="clip"><video controls muted playsinline preload="none" src="${esc(c.url)}" aria-label="${esc(title)}"></video><button class="clip-play" type="button" aria-label="Play ${esc(title)}"><svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg></button></div><figcaption><span class="tag">${esc(c.tag)}</span> ${esc(title)}</figcaption></figure>`;
+  const u = getFps() === 60 && c.url60 ? c.url60 : c.url;
+  return `<figure class="clipfig"><div class="clip vbox" data-u30="${esc(c.url)}" data-u60="${esc(c.url60 || "")}"><video controls muted playsinline preload="metadata" src="${esc(clipSrc(u))}" aria-label="${esc(title)}"></video><div class="vtools">${fpsBtn(c.url60)}${fsBtn}</div></div><figcaption><span class="tag">${esc(c.tag)}</span> ${esc(title)}</figcaption></figure>`;
 }
+/* Card clip: first frame shown, plays on hover or tap, loops while active. */
+function hoverClip(url, label, icon, url60) {
+  const u = getFps() === 60 && url60 ? url60 : url;
+  return `<div class="hclip vbox" data-play data-u30="${esc(url)}" data-u60="${esc(url60 || "")}"><video muted loop playsinline preload="metadata" src="${esc(clipSrc(u))}" aria-label="${esc(label)}"></video><span class="hc-ic">${icon || ""}</span><button type="button" class="hc-btn" aria-label="Play ${esc(label)}"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg></button><div class="vtools">${fpsBtn(url60)}${fsBtn}</div></div>`;
+}
+const noClip = (icon, text = "No clip yet") => `<div class="hclip empty-clip"><span class="hc-ic big">${icon || ""}</span><span class="hc-none">${esc(text)}</span></div>`;
+let lastBox = null;
+function setClipFps(box, fps) {
+  const v = $("video", box), u = fps === 60 && box.dataset.u60 ? box.dataset.u60 : box.dataset.u30;
+  if (!v || !u) return;
+  const t = v.currentTime, was = !v.paused;
+  v.onerror = () => { if (fps === 60) { v.onerror = null; v.src = clipSrc(box.dataset.u30); const b = $(".fps-btn", box); if (b) { b.textContent = "30"; b.disabled = true; } } };
+  v.src = clipSrc(u);
+  v.addEventListener("loadedmetadata", () => { try { v.currentTime = t; } catch (e) { /* ignore */ } if (was) v.play().catch(() => {}); }, { once: true });
+}
+/* Fullscreen: the Fullscreen API where it exists, the video element's own on iOS, otherwise a fixed-position fallback. */
+function toggleFullscreen(el) {
+  const cur = document.fullscreenElement || document.webkitFullscreenElement;
+  if (cur || el.classList.contains("pfs")) { (document.exitFullscreen || document.webkitExitFullscreen || (() => {})).call(document); el.classList.remove("pfs"); document.body.classList.remove("nofs"); return; }
+  const rq = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (rq) { Promise.resolve(rq.call(el)).catch(() => pseudoFs(el)); return; }
+  const v = $("video", el);
+  if (el.dataset.pfsonly) { pseudoFs(el); return; }
+  if (v && v.webkitEnterFullscreen) { try { v.webkitEnterFullscreen(); return; } catch (e) { /* fall through */ } }
+  pseudoFs(el);
+}
+function pseudoFs(el) { el.classList.add("pfs"); document.body.classList.add("nofs"); }
 document.addEventListener("click", e => {
-  const b = e.target.closest && e.target.closest(".clip-play");
-  if (b) { const v = b.parentElement.querySelector("video"); v.play().catch(() => {}); }
+  const t = e.target;
+  if (!t.closest) return;
+  const fb = t.closest(".fs-btn");
+  if (fb) { e.preventDefault(); toggleFullscreen(fb.closest(".vbox") || fb.closest("[data-fsbox]")); return; }
+  const pb = t.closest(".fps-btn");
+  if (pb) { e.preventDefault(); const nx = getFps() === 60 ? 30 : 60; lsSet("vpt-fps", String(nx)); $$(".fps-btn").forEach(b => { if (!b.disabled) b.textContent = nx; }); $$(".vbox").forEach(bx => { if (bx.dataset.u60) setClipFps(bx, nx); }); document.dispatchEvent(new CustomEvent("vpt-fps", { detail: nx })); return; }
+  const b = t.closest(".hc-btn, .hclip video");
+  if (b) { const box = b.closest(".hclip"), v = $("video", box); if (!v) return; lastBox = box; if (v.paused) v.play().catch(() => {}); else v.pause(); }
 });
-document.addEventListener("play", e => { if (e.target.tagName === "VIDEO") { const b = e.target.parentElement.querySelector(".clip-play"); if (b) b.hidden = true; } }, true);
-document.addEventListener("pause", e => { if (e.target.tagName === "VIDEO" && e.target.ended === false && e.target.currentTime === 0) { const b = e.target.parentElement.querySelector(".clip-play"); if (b) b.hidden = false; } }, true);
+document.addEventListener("play", e => { const bx = e.target.closest && e.target.closest(".hclip"); if (bx) { bx.classList.add("on"); lastBox = bx; } }, true);
+document.addEventListener("pause", e => { const bx = e.target.closest && e.target.closest(".hclip"); if (bx) bx.classList.remove("on"); }, true);
+document.addEventListener("pointerover", e => {
+  if (e.pointerType !== "mouse") return;
+  const box = e.target.closest && e.target.closest(".vbox");
+  if (box) lastBox = box;
+  const h = e.target.closest && e.target.closest(".hclip");
+  if (h && !h.classList.contains("on") && $("video", h)) $("video", h).play().catch(() => {});
+});
+document.addEventListener("pointerout", e => {
+  if (e.pointerType !== "mouse") return;
+  const box = e.target.closest && e.target.closest(".hclip");
+  if (box && !box.contains(e.relatedTarget) && $("video", box)) { const v = $("video", box); v.pause(); v.currentTime = 0.1; }
+});
 
-function cloudTable(c) {
-  if (c && c.jobs) {
-    const workers = c.jobs.filter(j => j.platform === "github-actions" && j.run);
-    if (workers.length) {
-      const by = {}; workers.forEach(j => by[j.state] = (by[j.state] || 0) + 1);
-      const rest = { ...c, jobs: c.jobs.filter(j => !(j.platform === "github-actions" && j.run)) };
-      return (rest.jobs.length ? cloudTable(rest) : "") + `<p class="upd">${workers.length} worker job(s): ${Object.entries(by).map(([k, v]) => v + " " + k).join(", ")}. <a href="#/training">Per-worker detail on Training</a>.</p>`;
-    }
-  }
-  if (!c || !c.jobs || !c.jobs.length) return `<div class="empty">No cloud jobs reported yet. Jobs on Colab, Kaggle or other GPU hosts appear here when training starts.</div>`;
-  const PF = { colab: "Colab", kaggle: "Kaggle", local: "Local", "github-actions": "GitHub Actions" };
-  return `<div class="tw"><table><thead><tr><th>Job</th><th>Platform</th><th>Hardware</th><th>State</th><th>Started</th><th>Updated</th><th>Progress</th><th>Run</th></tr></thead><tbody>${c.jobs.map(j =>
-    `<tr><td>${esc(j.name)}</td><td>${PF[j.platform] || esc(j.platform)}</td><td>${esc(j.hardware || "-")}</td><td><span class="tag ${j.state}">${j.state}</span></td><td>${when(j.started)}</td><td>${ago(j.updated)}</td><td class="wrap">${esc(j.progress || "-")}</td><td>${j.run ? `<a href="#/training/${encodeURIComponent(j.run.split("/").pop())}">${esc(j.run.split("/").pop())}</a>` : "-"}</td></tr>`).join("")}</tbody></table></div>`;
+/* ---------- lightbox ---------- */
+function openLightbox(src, cap) {
+  const lb = $("#lightbox"); $("img", lb).src = src; $("img", lb).alt = cap || ""; $(".lb-cap", lb).textContent = cap || "";
+  lb.hidden = false; $(".lb-close", lb).focus();
 }
+$("#lightbox").addEventListener("click", e => { if (e.target.id === "lightbox" || e.target.classList.contains("lb-close")) $("#lightbox").hidden = true; });
+document.addEventListener("keydown", e => { if (e.key === "Escape") $("#lightbox").hidden = true; });
+document.addEventListener("click", e => {
+  const f = e.target.closest && e.target.closest("[data-zoom]");
+  if (f) openLightbox(f.dataset.zoom, f.dataset.cap);
+});
 
-const pct = v => v == null ? "-" : Math.round(v * 100) + "%";
-function roundsView(r, names) {
-  if (!r.rounds.length) return `<div class="empty">No evaluated releases yet. After each round the merged policy is released as round-N and evaluated on every mode, and the baseline VPT model is evaluated the same way. Win rate and return per mode will appear here so rounds can be compared.</div>`;
-  const modes = r.modes.filter(k => r.rounds.some(x => x.modes[k]));
-  const best = {};
-  modes.forEach(k => { const c = r.rounds.filter(x => x.modes[k] && x.modes[k].win_rate != null);
-    if (c.length > 1) best[k] = c.reduce((a, b) => { const A = a.modes[k], B = b.modes[k]; return (B.win_rate > A.win_rate || (B.win_rate === A.win_rate && B.return > A.return)) ? b : a; }).tag; });
-  return `<p class="upd" style="margin:0 0 8px">Each cell is win rate against the scripted arena bots, with mean return below it. The outlined cell is the best release for that mode. Shading follows win rate.</p>
-  <div class="tw"><table class="rounds"><thead><tr><th>Mode</th>${r.rounds.map(x => `<th class="n">${esc(x.tag)}</th>`).join("")}</tr></thead><tbody>
-  ${modes.map(k => `<tr><td>${esc(names[k] || k)}</td>${r.rounds.map(x => { const v = x.modes[k]; return v ? `<td class="rc ${best[k] === x.tag ? "best" : ""}" style="--w:${v.win_rate || 0}"><b>${pct(v.win_rate)}</b><span>${fmt(v.return, 3)}</span></td>` : `<td class="rc none">-</td>`; }).join("")}</tr>`).join("")}
-  <tr class="sum"><td>Mean win rate</td>${r.rounds.map(x => `<td class="n"><b>${pct(x.mean_win_rate)}</b></td>`).join("")}</tr>
-  <tr class="sum"><td>Mean return</td>${r.rounds.map(x => `<td class="n">${fmt(x.mean_return, 3)}</td>`).join("")}</tr>
-  <tr class="sum"><td>Elo vs arena bots</td>${r.rounds.map(x => `<td class="n">${x.elo == null ? "-" : Math.round(x.elo)}</td>`).join("")}</tr>
-  </tbody></table></div>`;
-}
-function workersView(w, names) {
-  if (!w.workers.length) return `<div class="empty">No workers reported yet. Each round starts 12 workers that train two modes each; their progress appears here, grouped by round.</div>`;
-  const groups = new Map();
-  w.workers.forEach(x => { const k = x.round == null ? "other" : x.round; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); });
-  return [...groups].map(([k, list]) => {
-    const by = {}; list.forEach(x => by[x.state] = (by[x.state] || 0) + 1);
-    return `<h3 style="margin:1.2em 0 .5em">${k === "other" ? "Other workers" : "Round " + k} <small style="color:var(--muted);font-weight:500">${list.length} worker(s): ${Object.entries(by).map(([s, n]) => n + " " + s).join(", ")}</small></h3>
-    <div class="tw"><table><thead><tr><th>Worker</th><th>State</th><th class="n">Iter</th><th class="n">Steps</th><th class="n">FPS</th><th class="n">Min left</th><th>Modes: return, win rate</th><th>Updated</th></tr></thead><tbody>
-    ${list.map(x => `<tr><td><a href="#/training/${encodeURIComponent(x.job)}">${esc(x.job)}</a></td><td><span class="tag ${x.state}">${esc(x.state)}</span></td><td class="n">${x.iter ?? "-"}</td><td class="n">${x.env_steps == null ? "-" : Number(x.env_steps).toLocaleString()}</td><td class="n">${x.fps == null ? "-" : fmtN(x.fps, 1)}</td><td class="n">${x.minutes_left == null ? "-" : Math.round(x.minutes_left)}</td>
-    <td class="wrap">${(x.modes.length ? x.modes : Object.keys(x.per_mode)).map(m => { const v = x.per_mode[m]; return `<div class="pm"><b>${esc(names[m] || m)}</b> ${v ? `return ${fmt(v.return, 3)}, win ${pct(v.win_rate)} <span class="mono">(${v.episodes} ep)</span>` : `<span class="mono">no episodes yet</span>`}</div>`; }).join("")}</td><td>${ago(x.updated)}</td></tr>`).join("")}
-    </tbody></table></div>`;
-  }).join("");
-}
+/* ---------- skeletons, empty states ---------- */
+const skel = (kind = "page") => ({
+  page: `<div class="skel-page" aria-busy="true"><div class="skel sk-h"></div><div class="skel sk-p"></div><div class="skel sk-p short"></div><div class="grid cols" style="margin-top:22px">${'<div class="skel sk-card"></div>'.repeat(6)}</div></div>`,
+  list: `<div class="skel-page" aria-busy="true"><div class="skel sk-h"></div><div class="skel sk-box"></div><div class="skel sk-box"></div></div>`,
+}[kind]);
+const counter = (el, to, opts = {}) => {
+  const fmtF = opts.fmt || (v => Math.round(v).toLocaleString());
+  if (reduced || to == null || !isFinite(to) || to < 2) { el.textContent = to == null ? "-" : fmtF(to); return; }
+  const t0 = performance.now(), D = 900;
+  const step = t => { const k = Math.min(1, (t - t0) / D), e = 1 - Math.pow(1 - k, 3); el.textContent = fmtF(to * e); if (k < 1 && el.isConnected) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+};
 
-/* ---------- pages ---------- */
+/* ---------- router ---------- */
 const pages = {};
-
-pages.overview = async () => {
-  const o = await api("/api/overview");
-  const best = o.best_elo ? `${Math.round(o.best_elo.elo)}` : "-";
-  view.innerHTML = `
-  <h1>VPT Arena</h1>
-  <p class="lede">One network plays survival Minecraft and ${o.modes - 1} PvP and minigame modes. It takes game pixels in and puts keyboard and mouse out at 20 Hz, like a player. It is built on OpenAI's Video PreTraining (VPT) model. A learned game-mode embedding (mode, 1.8 or 1.9+ combat, team size) is added through VPT's <code>diff_obs_process</code> hook. It starts at zero, so before any training the model behaves as VPT does.</p>
-  <div class="grid stats">
-    <div class="card stat"><div class="k">Training data</div><div class="v">${fmtH(o.hours)} h</div><div class="s">${o.trajectories} trajectories</div></div>
-    <div class="card stat"><div class="k">Latest BC eval NLL</div><div class="v">${o.latest_eval_nll == null ? "-" : fmt(o.latest_eval_nll, 4)}</div><div class="s">${o.bc_runs} BC run(s), ${o.rl_runs} RL run(s)</div></div>
-    <div class="card stat"><div class="k">Best Elo</div><div class="v">${best}</div><div class="s">${o.best_elo ? esc(o.best_elo.name) : "no league yet"}</div></div>
-    <div class="card stat"><div class="k">Live agent</div><div class="v">${o.live.online ? esc(o.live.state || "online") : "offline"}</div><div class="s">${o.live.age == null ? "no status file" : "updated " + Math.round(o.live.age) + " s ago"}</div></div>
-  </div>
-  <h2>Phases</h2>
-  <div class="tw"><table><thead><tr><th>Phase</th><th>What</th><th>Live status</th><th>Tested</th><th>State</th></tr></thead><tbody>
-  ${o.phases.map(p => `<tr><td>${p.phase}. ${esc(p.name)}</td><td class="wrap">${esc(p.what)}</td><td class="wrap">${esc(p.status)}</td><td class="wrap">${esc(p.tested)}</td><td><span class="tag ${p.state}">${p.state === "done" ? "has data" : p.state === "active" ? "running" : "empty"}</span></td></tr>`).join("")}
-  </tbody></table></div>
-  <p style="color:var(--faint);font-size:.85rem">Status comes from the files on disk (weights, data, runs, live), not from the README. The Tested column is a fixed note on how far each phase has been checked; see the Docs page.</p>
-  <h2>Watch the agent</h2>
-  ${o.clips && o.clips.length ? `<div class="clips">${o.clips.map(c => clipHtml(c, c.name)).join("")}</div>` : `<div class="empty">No gameplay clips yet. After each training round the agent is evaluated on every mode and a short clip of each is posted here.</div>`}
-  <h2>Cloud</h2>
-  ${cloudTable(o.cloud)}
-  <p class="upd">${o.cloud && o.cloud.updated ? "Cloud status updated " + when(o.cloud.updated) : "No cloud status file yet."}</p>
-  <h2>Data by source</h2>
-  <div class="card">${barList(Object.entries(o.by_source).map(([k, v]) => [SRC_NAMES[k], v.hours, `${fmtH(v.hours)} h, ${v.trajectories} traj`]), Math.max(o.hours, 1e-9))}</div>`;
-};
-
-pages.modes = async () => {
-  const d = await api("/api/modes");
-  const maxH = Math.max(...d.modes.map(m => m.hours), 1e-9);
-  view.innerHTML = `<h1>Modes</h1><p class="lede">${d.modes.length} game modes. The same network plays all of them; a learned embedding tells it which one it is in. Modern is 1.9+ combat with the attack cooldown. Legacy is 1.8 combat with spam clicking. Reward events are the server signals the RL phase turns into reward, with their weights.</p>
-  <div class="toolbar"><input type="search" id="q" placeholder="Filter modes" aria-label="Filter modes"><button class="chip on" data-r="">All</button><button class="chip" data-r="modern">Modern</button><button class="chip" data-r="legacy">Legacy</button></div>
-  <div class="grid cols" id="mgrid"></div>`;
-  let rs = "", q = "";
-  const draw = () => {
-    const list = d.modes.filter(m => (!rs || m.ruleset === rs) && (!q || (m.name + m.key + m.summary).toLowerCase().includes(q)));
-    $("#mgrid").innerHTML = list.map(m => `<article class="card mode"><h3>${esc(m.name)}<span class="mkey">${esc(m.key)}</span></h3>
-      <div class="tags"><span class="tag ${m.ruleset}">${m.ruleset === "modern" ? "modern, 1.9+ cooldown" : "legacy, 1.8 combat"}</span><span class="tag">team size ${m.team_size}</span></div>
-      <p>${esc(m.summary)}</p>
-      ${m.clip && okUrl(m.clip.url) ? clipHtml(m.clip, "newest clip") : `<div class="noclip">No clip yet</div>`}
-      <div class="ev">${Object.entries(m.events).map(([k, w]) => `<span class="${w < 0 ? "neg" : "pos"}">${esc(k)} <b>${w > 0 ? "+" : ""}${w}</b></span>`).join("")}</div>
-      <div class="foot2"><span><b>${fmtH(m.hours)}</b> h data (${m.trajectories})</span><span>best Elo <b>${m.best_elo ? Math.round(m.best_elo.elo) : "-"}</b>${m.best_elo ? " " + esc(m.best_elo.name) : ""}</span></div>
-    </article>`).join("") || `<div class="empty">no modes match</div>`;
-  };
-  draw();
-  $("#q").oninput = e => { q = e.target.value.toLowerCase().trim(); draw(); };
-  document.querySelectorAll(".chip[data-r]").forEach(b => b.onclick = () => { rs = b.dataset.r; document.querySelectorAll(".chip[data-r]").forEach(x => x.classList.toggle("on", x === b)); draw(); });
-};
-
-let selRun = null;
-pages.training = async () => {
-  view.innerHTML = `<h1>Training</h1><p class="lede">Runs under <code>runs/</code>. ${STATIC ? "This public page refreshes about once a minute from a snapshot that is rebuilt every 5 minutes." : "Charts refresh every 10 seconds."}</p>
-  <h2>Rounds</h2><div id="rounds"></div>
-  <h2>Workers</h2><div id="workers"></div>
-  <h2>Run charts</h2><div id="runs" class="runs"></div><div id="detail"></div>`;
-  const loadCloud = async () => {
-    const [r, w, md] = await Promise.all([api("/api/rounds"), api("/api/workers"), api("/api/modes")]);
-    const names = Object.fromEntries(md.modes.map(m => [m.key, m.name]));
-    $("#rounds").innerHTML = roundsView(r, names);
-    $("#workers").innerHTML = workersView(w, names);
-  };
-  const load = async () => {
-    await loadCloud().catch(e => { $("#rounds").innerHTML = $("#workers").innerHTML = `<div class="empty">Could not load: ${esc(e.message)}</div>`; });
-    const { runs } = await api("/api/runs");
-    if (!runs.length) { $("#runs").innerHTML = `<div class="empty" style="grid-column:1/-1">No training runs yet. Behavior cloning and RL runs appear here as soon as they write a log.</div>`;
-      $("#detail").innerHTML = `<div class="grid cols-2">${placeholderCard("Behavior cloning loss", "No runs yet.")}${placeholderCard("Evaluation loss", "No runs yet.")}${placeholderCard("RL return by mode", "No RL runs yet. One line per game mode will be drawn on one chart.")}${placeholderCard("Win rate", "No RL runs yet.")}</div>`; return; }
-    const want = decodeURIComponent(location.hash.split("/")[2] || "");
-    if (want && runs.some(r => r.name === want)) selRun = want;
-    if (!selRun || !runs.some(r => r.name === selRun)) selRun = runs[0].name;
-    $("#runs").innerHTML = runs.map(r => `<button class="run ${r.name === selRun ? "on" : ""}" data-n="${esc(r.name)}"><div class="nm">${esc(r.name)}</div><div class="mt"><span class="tag">${r.kind.toUpperCase()}</span> ${esc(r.arch || "")} &middot; ${r.points} pts &middot; ${ago(r.updated)}</div></button>`).join("");
-    document.querySelectorAll(".run").forEach(b => b.onclick = () => { selRun = b.dataset.n; load(); });
-    const sel = runs.find(r => r.name === selRun);
-    const d = await api("/api/run/" + encodeURIComponent(selRun));
-    const lastKv = Object.entries(sel.last).slice(0, 8).map(([k, v]) => `<span class="tag">${esc(k)} ${fmt(v, 4)}</span>`).join(" ");
-    $("#detail").innerHTML = `<div class="card" style="margin-bottom:14px"><h3>${esc(d.summary.name)} <span class="tag">${d.summary.kind.toUpperCase()}</span></h3>
-      <div style="color:var(--muted);font-size:.9rem">started ${d.started ? new Date(d.started * 1000).toLocaleString() : "-"} &middot; arch ${esc(d.arch || "-")} &middot; x axis: ${d.x}</div><div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">${lastKv}</div></div>
-      ${Object.keys(d.mode_curves || {}).length ? `<div class="card chart" style="margin-bottom:14px"><h3>Return by mode<small>mean return per game mode</small></h3>${multiChart(d.mode_curves, "Mean return by game mode over training")}</div>` : (d.summary.kind === "rl" ? `<div class="card chart" style="margin-bottom:14px"><h3>Return by mode</h3><div class="empty">This RL log has no per-mode returns yet.</div></div>` : "")}
-      ${d.charts.length ? `<div class="grid cols-2">${d.charts.map((c, i) => `<div class="card chart"><h3>${esc(c.field)}<small>${fmt(c.points[c.points.length - 1][1], 4)}</small></h3>${lineChart(c.points, COLORS[i % COLORS.length], { label: c.field })}</div>`).join("")}</div>` : `<div class="empty">The log has no numeric rows yet.</div>`}
-      ${Object.keys(d.by_mode).length ? `<h2>Latest return by mode</h2><div class="card">${(() => { const e = Object.entries(d.by_mode).sort((a, b) => b[1] - a[1]); const mx = Math.max(...e.map(x => Math.abs(x[1])), 1e-9); return barList(e.map(([k, v]) => [k, Math.abs(v), fmt(v, 3)]), mx); })()}</div>` : ""}
-      <h2>Run settings</h2>${Object.keys(d.args).length ? `<div class="tw"><table><tbody>${Object.entries(d.args).map(([k, v]) => `<tr><td class="mono">${esc(k)}</td><td class="mono">${esc(typeof v === "object" ? JSON.stringify(v) : v)}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">no args recorded</div>`}`;
-    wireCharts($("#detail"));
-    if (want && !scrolled) { scrolled = true; $("#detail").scrollIntoView(); }
-  };
-  let scrolled = false;
-  await load();
-  every(STATIC ? 60000 : 10000, () => { snapT = 0; load().catch(() => {}); });
-};
-
-pages.data = async () => {
-  const d = await api("/api/data");
-  const modeNames = Object.fromEntries((await api("/api/modes")).modes.map(m => [m.key, m.name]));
-  const mx = Math.max(d.total.hours, 1e-9);
-  const rows = o => Object.entries(o).sort((a, b) => b[1].hours - a[1].hours || b[1].trajectories - a[1].trajectories);
-  view.innerHTML = `<h1>Data</h1><p class="lede">${d.total.trajectories} trajectories, ${fmtH(d.total.hours)} hours. Hours are recorder lines divided by 20 (fps) and 3600. A trajectory with no meta file counts as survival from the contractor source.</p>
-  <div class="grid cols-2">
-   <div><h2 style="margin-top:.5em">By source</h2><div class="tw"><table><thead><tr><th>Source</th><th class="n">Trajectories</th><th class="n">Hours</th></tr></thead><tbody>${Object.entries(d.by_source).map(([k, v]) => `<tr><td>${SRC_NAMES[k]}</td><td class="n">${v.trajectories}</td><td class="n">${fmtH(v.hours)}</td></tr>`).join("")}</tbody></table></div></div>
-   <div><h2 style="margin-top:.5em">By mode</h2>${Object.keys(d.by_mode).length ? `<div class="tw"><table class="wrapt"><thead><tr><th>Mode</th><th class="n">Traj.</th><th class="n">Hours</th></tr></thead><tbody>${rows(d.by_mode).map(([k, v]) => `<tr><td>${esc(modeNames[k] || k)} <span class="mono" style="color:var(--faint)">${esc(k)}</span></td><td class="n">${v.trajectories}</td><td class="n">${fmtH(v.hours)}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">no trajectories found under data/</div>`}</div>
-  </div>
-  <h2>Most recent trajectories</h2>
-  ${d.recent.length && STATIC ? `<div class="tw"><table><thead><tr><th>Mode</th><th>Source</th><th>Ruleset</th><th class="n">Hours</th><th class="n">Frames</th></tr></thead><tbody>${d.recent.map(t => `<tr><td>${esc(t.mode_name)}</td><td>${esc(SRC_NAMES[t.source])}</td><td>${esc(t.ruleset || "-")}</td><td class="n">${fmtH(t.hours)}</td><td class="n">${t.frames}</td></tr>`).join("")}</tbody></table></div>` : d.recent.length ? `<div class="thumbs">${d.recent.map(t => `<div class="thumb"><img loading="lazy" alt="First frame of ${esc(t.path)}" src="/api/thumb?path=${encodeURIComponent(t.path)}" onerror="this.style.visibility='hidden'"><div><b title="${esc(t.path)}">${esc(t.path)}</b>${esc(t.mode_name)}<br>${esc(SRC_NAMES[t.source])}${t.ruleset ? " &middot; " + esc(t.ruleset) : ""}${t.team_size ? " &middot; team " + t.team_size : ""}<br>${fmtH(t.hours)} h &middot; ${t.frames} frames${t.weight != null ? " &middot; w " + t.weight : ""}${t.loss_weight != null ? " / lw " + t.loss_weight : ""}</div></div>`).join("")}</div>` : `<div class="empty">Nothing recorded yet. See Docs for how to add data.</div>`}`;
-};
-
-pages.league = async () => {
-  const d = await api("/api/league");
-  view.innerHTML = `<h1>League</h1><p class="lede">Elo ratings from <code>runs/league.json</code>. Pick a mode to rank by the per-mode rating.</p>
-  <div class="toolbar"><label for="lm" style="color:var(--muted)">Mode</label><select id="lm"><option value="">All modes</option>${d.modes.map(k => `<option value="${esc(k)}">${esc(k)}</option>`).join("")}</select></div>
-  <h2 style="margin-top:.6em">Ratings</h2><div id="lt"></div><h2>Recent matches</h2><div id="lmx"></div>`;
-  const draw = () => {
-    const m = $("#lm").value;
-    const pl = d.players.map(p => ({ ...p, e: m ? p.by_mode[m] : p.elo })).filter(p => p.e != null).sort((a, b) => b.e - a.e);
-    $("#lt").innerHTML = pl.length ? `<div class="tw"><table><thead><tr><th class="n">#</th><th>Name</th><th>Kind</th><th class="n">Elo</th><th class="n">Games</th><th class="n">Wins</th><th class="n">Win %</th></tr></thead><tbody>${pl.map((p, i) => `<tr><td class="n">${i + 1}</td><td>${esc(p.name)}</td><td><span class="tag">${esc(p.kind)}</span></td><td class="n">${Math.round(p.e)}</td><td class="n">${p.games}</td><td class="n">${p.wins}</td><td class="n">${p.win_pct == null ? "-" : p.win_pct.toFixed(1)}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">${d.players.length ? "no players rated in this mode" : "No league data yet."}</div>`;
-    const mt = d.matches.filter(x => !m || x.mode === m).slice(0, 50);
-    $("#lmx").innerHTML = mt.length ? `<div class="tw"><table><thead><tr><th>When</th><th>Mode</th><th>A</th><th>B</th><th>Winner</th><th>Score</th></tr></thead><tbody>${mt.map(x => `<tr><td>${ago(x.t)}</td><td>${esc(x.mode)}</td><td>${esc(x.a)}</td><td>${esc(x.b)}</td><td>${x.winner ? esc(x.winner) : "draw"}</td><td>${esc(x.score ?? "")}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">no matches</div>`;
-  };
-  $("#lm").onchange = draw; draw();
-};
-
-function keyEl(label, on, cls = "") { return `<div class="key ${cls} ${on ? "on" : ""}">${label}</div>`; }
-function renderLive(d) {
-  const st = d.status || {}, a = st.last_action || {}, cam = Array.isArray(a.camera) ? a.camera : [0, 0];
-  const on = !!d.online, hot = [1, 2, 3, 4, 5, 6, 7, 8, 9].filter(i => a["hotbar." + i]);
-  const mv = Math.hypot(cam[0] || 0, cam[1] || 0);
-  const ang = Math.atan2(cam[0] || 0, cam[1] || 0), len = Math.min(34, mv * 2.2);
-  const dx = Math.cos(ang) * len, dy = Math.sin(ang) * len;
-  $("#livebody").innerHTML = `
-  <div class="grid live">
-    <div class="card"><div class="frame"><span>${d.frame ? "" : "no frame yet"}</span>${d.frame && liveSrc ? `<img id="lf" alt="Latest agent view" src="${liveSrc}">` : ""}</div>
-      <dl class="kv" style="margin-top:14px"><dt>State</dt><dd>${on ? esc(st.state) : "offline"}${!on && d.age != null ? ` (last update ${Math.round(d.age)} s ago)` : ""}</dd>
-      <dt>Mode</dt><dd>${esc(st.mode ?? "-")}</dd><dt>Checkpoint</dt><dd class="mono">${esc(st.checkpoint ?? "-")}</dd><dt>Server</dt><dd class="mono">${esc(st.server ?? "-")}</dd>
-      <dt>FPS</dt><dd>${st.fps == null ? "-" : fmtN(st.fps, 1)}</dd><dt>Episode</dt><dd>${st.episode ? `${fmtN(st.episode.t, 1)} s, return ${fmt(st.episode.return, 4)}` : "-"}</dd></dl></div>
-    <div class="card"><h3>Last action</h3><div class="keys" style="${on ? "" : "opacity:.45"}" aria-label="Last action">
-      <div class="krow">${keyEl("W", a.forward)}</div>
-      <div class="krow">${keyEl("A", a.left)}${keyEl("S", a.back)}${keyEl("D", a.right)}</div>
-      <div class="krow">${keyEl("Ctrl", a.sprint, "sm")}${keyEl("Shift", a.sneak, "sm")}${keyEl("Space", a.jump, "space")}</div>
-      <div class="krow" style="flex-wrap:wrap;justify-content:center">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(i => keyEl(i, a["hotbar." + i], "sm")).join("")}</div>
-      <div class="mouse-row" style="margin-top:8px">
-        <div class="krow">${keyEl("LMB", a.attack, "sm")}${keyEl("RMB", a.use, "sm")}</div>
-        <svg width="96" height="96" viewBox="-48 -48 96 96" role="img" aria-label="Camera movement ${(cam[0] || 0).toFixed(1)} pitch, ${(cam[1] || 0).toFixed(1)} yaw degrees"><circle r="42" fill="var(--panel2)" stroke="var(--line2)"/><line x1="-42" x2="42" stroke="var(--line)"/><line y1="-42" y2="42" stroke="var(--line)"/>
-          ${mv > 0.01 ? `<line x1="0" y1="0" x2="${dx}" y2="${dy}" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/><circle cx="${dx}" cy="${dy}" r="4.5" fill="var(--accent)"/>` : `<circle r="3" fill="var(--faint)"/>`}</svg>
-      </div>
-      <div class="mono" style="color:var(--muted)">camera pitch ${(cam[0] || 0).toFixed(1)}, yaw ${(cam[1] || 0).toFixed(1)} deg</div></div></div>
-  </div>`;
-}
-let liveSrc = null;
-pages.live = async () => {
-  liveSrc = null;
-  if (STATIC) {
-    view.innerHTML = `<h1>Live</h1><p class="lede">The live agent plays in a Minecraft window on a private machine, so its view and keystrokes are not published. On a local copy of this dashboard this page shows the latest game frame and the keys and mouse the agent last pressed.</p>
-    <div class="empty">Live view is available only when running the dashboard locally.</div>
-    <h2>What the live page shows</h2><ul class="doc" style="color:var(--muted)"><li>State, mode, checkpoint, frames per second and the current episode return.</li><li>The last action as a keyboard and mouse diagram.</li><li>Offline status when the status file is more than 10 seconds old.</li></ul>`;
-    return;
-  }
-  view.innerHTML = `<h1>Live</h1><p class="lede">State of the live agent from <code>live/status.json</code> and the latest view from <code>live/frame.jpg</code>. The agent counts as offline when the status file is more than 10 seconds old.</p><div id="livebody" style="margin-top:16px"></div>`;
-  const tick = async () => {
-    const d = await api("/api/live");
-    renderLive(d);
-    if (d.frame) {
-      const n = new Image();
-      n.onload = () => { liveSrc = n.src; const el = $("#lf"); if (el) el.src = n.src; };
-      n.src = "/live/frame.jpg?t=" + Date.now();
-    }
-  };
-  await tick();
-  every(1000, () => tick().catch(() => {}));
-};
-
-/* ---------- docs ---------- */
-const DOCS = [
- ["intro", "What this is", `
-<p>VPT Arena trains one network to play survival Minecraft and the PvP minigames. The network takes 128x128 game frames and outputs keyboard and mouse actions at 20 Hz. It starts from OpenAI's Video PreTraining (VPT) foundation model. A learned embedding for the game mode, the combat ruleset (1.8 or 1.9+) and the team size is added to the model input. The embedding starts at zero.</p>
-<div class="note"><b>Server scope.</b> It is for a server you run only. Public servers such as Hypixel ban bots, and nothing in this project deals with anti-cheat. Do not point the live client at a server you do not run.</div>
-<p>All phases have code. Each section below says what its command does and how far it has been tested; the Overview page shows the same per phase. So far the real-world checks are the 1x weights on one contractor clip, a short BC fine-tune, and cloud RL in MineStudio (see How cloud RL works). The recorder, live agent and datapack have been tested with fakes only, and the live-server RL path below with a toy environment only.</p>`],
- ["cloud", "How cloud RL works", `
-<p>Training that needs real gameplay runs on GitHub Actions in the public repository <a href="${REPO_URL}">bward-dev1/vpt-arena</a>. Each round works like this:</p>
-<ul>
-<li>12 workers start at the same time. Each worker trains 2 game modes. Workers run MineStudio on Minecraft 1.16.5.</li>
-<li>Opponents are armed mobs in sky arenas, standing in for players. There is no live server and no other person involved.</li>
-<li>Opponent strength follows a curriculum: round 0 used full-strength opponents; from round 1 they start at 0.45 of full strength (fewer armour pieces, weapons one tier lower) and gain 0.15 per round until full strength.</li>
-<li>Training is PPO with a KL penalty that pulls the policy toward the policy the round started from.</li>
-<li>When the workers finish, their policies are merged into one by federated averaging, and the result is released as <code>round-N</code>.</li>
-<li>Each release is then evaluated on all 23 modes, 3 games each, at a fixed opponent strength of 0.5, against the scripted arena bots, which hold an Elo of 1000. The original VPT foundation model is evaluated the same way and appears as <code>baseline</code>. A short gameplay clip of every mode is attached to the release.</li>
-<li>A round takes about 2.5 hours. The runners have no GPU, so the game renders on the CPU at about 20 frames per second per simulation.</li>
-</ul>
-<p>A script on a local machine reads worker status files and release assets every few minutes and writes the data this site shows: the Cloud table, the Workers and Rounds sections on Training, the League page and the clips. The Rounds table compares releases per mode so improvement from one round to the next is visible. Source code and releases: <a href="${REPO_URL}">${REPO_URL.replace("https://", "")}</a>.</p>`],
- ["format", "Data format", `
-<p>Each trajectory is three files with the same stem:</p>
-<ul><li><code>&lt;stem&gt;.mp4</code>: video at 20 fps, 640x360.</li><li><code>&lt;stem&gt;.jsonl</code>: one JSON object per frame, in VPT recorder format.</li><li><code>&lt;stem&gt;.meta.json</code> (optional): mode and weighting.</li></ul>
-<p>One recorder line, with the fields written by <code>env_action_to_json</code> in <code>vpt_arena/vpt.py</code>:</p>
-<pre><code>{"keyboard": {"keys": ["key.keyboard.w", "key.keyboard.space"], "newKeys": [], "chars": ""},
- "mouse": {"dx": 1.2, "dy": -0.4, "buttons": [0], "newButtons": [], "x": 0.0, "y": 0.0, "dwheel": 0.0},
- "hotbar": 0, "isGuiOpen": false, "tick": 0}</code></pre>
-<p><code>keys</code> holds names such as <code>key.keyboard.w</code>, <code>.a</code>, <code>.s</code>, <code>.d</code>, <code>.space</code>, <code>.left.shift</code>, <code>.left.control</code>, <code>.1</code> to <code>.9</code>, <code>.e</code>, <code>.q</code>, <code>.f</code> and <code>.escape</code>. <code>mouse.buttons</code> lists pressed buttons: 0 is attack (left), 1 is use (right), 2 is pick item (middle). <code>dx</code> and <code>dy</code> are mouse movement in pixels; the loader multiplies by 360/2400 to get degrees of camera turn.</p>
-<p>The meta file:</p>
-<pre><code>{"mode": "bedwars_solo", "ruleset": "legacy", "team_size": 1, "source": "human", "weight": 1.0, "loss_weight": 1.0}</code></pre>
-<p><code>source</code> is one of human, idm or contractor. <code>weight</code> sets how often the trajectory is sampled and <code>loss_weight</code> scales its loss. With no meta file, a trajectory counts as survival play from the contractor source, which is correct for OpenAI's contractor data. The Data page counts hours as the number of non-empty lines divided by 20 and by 3600.</p>`],
- ["record", "Record your own games", `
-<p>Human data goes in <code>data/human/&lt;mode&gt;/</code>. The recorder captures the Minecraft window at 20 fps as 640x360 video, plus the exact keys and mouse, and writes <code>&lt;timestamp&gt;.mp4</code>, <code>.jsonl</code> and <code>.meta.json</code> there.</p>
-<pre><code>python -m vpt_arena.live.recorder --mode bedwars_solo [--ruleset legacy] [--team-size N]</code></pre>
-<ul>
-<li>It records only while Minecraft is the front window. Switching away closes the segment, and segments under 2 seconds are dropped.</li>
-<li>F8 pauses and resumes. Ctrl-C stops.</li>
-<li>macOS asks for Screen Recording and Input Monitoring permission for the terminal app.</li>
-<li>Key bindings and mouse sensitivity are read from <code>configs/controls.json</code>. <code>sensitivity</code> is the slider value, so 0.5 is 100%. <code>bindings</code> maps an action to a key, for example <code>{"sprint": "r"}</code>. Recordings store VPT key names whatever the bindings are.</li>
-<li>Suggested game settings: FOV 70, GUI scale 2 at 1280x720, or any 16:9 window.</li>
-</ul>
-<p><b>Status:</b> tested with fake input and capture backends. It has not been run against a real Minecraft window. Check the first recording on the Data page: it should show a thumbnail, the right mode and a plausible number of hours.</p>`],
- ["idm", "Label videos with the IDM", `
-<p>The inverse dynamics model (IDM) predicts the keys and mouse movement between frames, so ordinary PvP videos can become training data. The weights are 1.9 GB; use a GPU machine such as Colab and keep them off the Mac's internal disk.</p>
-<pre><code>python -m vpt_arena.idm_label --weights weights/4x_idm.weights \\
-    --mode duels_sword --out data/idm/sword videos/*.mp4</code></pre>
-<p>Options: <code>--ruleset</code> and <code>--team-size</code> override the mode defaults, <code>--crop x,y,w,h</code> selects the game area in source pixels, <code>--min-conf</code> drops steps the IDM is unsure of, and <code>--loss-weight</code> (default 0.5) scales how much these labels count in training. Output is a recorder-format mp4, JSONL and meta file with source <code>idm</code>.</p>
-<p><b>Status:</b> tested on synthetic video only.</p>`],
- ["bc", "Train behavior cloning", `
-<p>Sequence BC runs over all data directories at once. Each <code>--data</code> takes a directory and an optional multiplier after a colon. Contractor data keeps the survival skill in the mix.</p>
-<pre><code>python -m vpt_arena.train_bc --arch 2x --weights weights/foundation-model-2x.weights \\
-    --data data/human:4 --data data/idm:2 --data data/contractor:1 \\
-    --run runs/arena-2x --batch 4 --T 64 --accum 4 --ckpt-cnn --steps 20000</code></pre>
-<p>The run directory gets <code>run.json</code> (kind, arch, start time, args) and <code>log.jsonl</code> with one line per optimizer step: <code>nll</code>, <code>btn_acc</code>, <code>kl</code>, <code>grad_norm</code>, <code>lr</code>, <code>sec</code>, and every <code>--eval-every</code> steps also <code>eval_nll</code> and <code>eval_btn_acc</code>. The Training page plots these. The camera loss is masked when the camera is off, and training resumes from the run directory. The 2x model has 249M parameters and needs a GPU; 1x has 71M.</p>
-<p>Contractor clips come from <code>tools/fetch_contractor.py --index 7 --n N --out data/contractor</code>.</p>
-<p><b>Status:</b> tested on synthetic data and on one real contractor clip. A 30-step fine-tune of 1x on that clip ran, and NLL fell from 4.5 to 3.6. Nothing has been trained on human or IDM-labelled PvP data yet.</p>`],
- ["validate", "Check real weights", `
-<pre><code>python tools/check_weights.py 2x idm4x
-python tools/validate_real.py</code></pre>
-<p><code>check_weights.py</code> compares remote weight keys and shapes to the model built here. <code>validate_real.py</code> scores a model on a real OpenAI contractor clip. The pretrained 1x model scores 4.28 NLL per step with 60% button-token accuracy on that clip. A randomly initialised 1x scores 13.14 and 0%.</p>`],
- ["server", "Set up your server", `
-<p>The agent and RL read rewards from your Minecraft server log, and RL sends commands over the server's remote console. <code>configs/arenas.json</code> holds the settings:</p>
-<ul><li><code>agent_name</code> and <code>opponent_name</code>: the two players.</li>
-<li>The remote console address and the <code>server_log</code> path. The remote console password is read from an environment variable, never from the file.</li>
-<li>Per mode: start commands, <code>start_event</code>, <code>end_events</code>, <code>max_seconds</code> and chat regex patterns.</li></ul>
-<p>Rewards come from the server log: vanilla death messages (kill, death, void_kill) and <code>[ARENA] &lt;event&gt;</code> lines printed with <code>/say</code>.</p>
-<p>The duel datapack is made with:</p>
-<pre><code>python tools/make_datapack.py --out &lt;world&gt;/datapacks/vpt_arena --format 101</code></pre>
-<p>Use the pack format of your server (101 for 26.1). Then run <code>/reload</code> and <code>/function vpt:arena/build</code> once. The kits are sword, classic, uhc, bow, sumo and boxing, and it prints round_start, win, loss, draw and knockoff. Other modes, such as Bed Wars, need a minigame plugin, with its join command and chat patterns filled into <code>arenas.json</code>.</p>
-<p><b>Status:</b> the datapack has not been loaded on a real server. After <code>/reload</code>, check the server log for function errors.</p>`],
- ["live", "Run the live agent", `
-<pre><code>python -m vpt_arena.live.play --weights &lt;policy.weights&gt; --arch 1x \\
-    --mode duels_sword --server &lt;host:port&gt;</code></pre>
-<ul>
-<li><code>--server</code> must be listed in <code>configs/own_servers.json</code>.</li>
-<li>It sends input only while Minecraft is the front window, and releases every key when it is not.</li>
-<li>Any key or click from the player stops it, after a 1.5 second grace period for the click that focuses the window.</li>
-<li>It writes <code>live/status.json</code> and <code>live/frame.jpg</code> every second, which the Live page reads. It needs Accessibility permission.</li>
-<li>With OpenAI's real 1x weights a step takes about 20 ms on the M2 CPU, which is 50 Hz; the game needs 20 Hz. The 2x model needs a GPU.</li>
-</ul>
-<p>Status file fields: <code>state</code> (idle, playing or recording), <code>mode</code>, <code>checkpoint</code>, <code>server</code>, <code>fps</code>, <code>updated</code> (unix time; the Live page shows offline after 10 seconds), <code>last_action</code> (env button names plus <code>camera</code> as [pitch, yaw] degrees) and <code>episode</code> (<code>t</code>, <code>return</code>).</p>
-<p><b>Status:</b> logic tested with fakes. It has not been run in a real game.</p>`],
- ["rl", "Run RL", `
-<pre><code>python -m vpt_arena.rl.train_rl --arch 1x \\
-    --weights &lt;policy.weights&gt; --mode duels_sword --run runs/rl-sword --iters 200</code></pre>
-<p>This is PPO over recurrent rollouts with a KL penalty toward the starting policy and a value-head warm-up (<code>--vf-warmup</code>). It resumes from the run directory. One Minecraft window is one environment running in real time, about 72,000 steps an hour. <code>--toy</code> runs the AttackOnRed test environment instead of Minecraft.</p>
-<p>The run writes <code>rl_log.jsonl</code> with one line per iteration: <code>iter</code>, <code>env_steps</code>, <code>ep_return_mean</code>, <code>ep_len_mean</code>, <code>win_rate</code>, <code>kl</code>, <code>pi_loss</code>, <code>v_loss</code>, <code>entropy</code>, <code>fps</code> and <code>by_mode</code>. The Training page plots them.</p>
-<p><b>Status:</b> on the toy environment, reward per step went from 0.12 to 0.44 (maximum 0.5), and recomputing a rollout as a sequence matched the step-by-step log-probabilities to 1e-6. The live environment and datapack are tested with fakes only; RL has not been run against a real server.</p>`],
- ["league", "League", `
-<pre><code>python -m vpt_arena.league play --weights &lt;w&gt; --name &lt;checkpoint name&gt; \\
-    --opponent &lt;player&gt; --opponent-kind human|scripted|checkpoint \\
-    --mode duels_sword --games 10
-python -m vpt_arena.league table [--mode M]</code></pre>
-<p><code>play</code> plays real games and writes <code>runs/league.json</code>; <code>table</code> prints the ratings. Elo uses K=32 and a start of 1000, kept overall and per mode. The League page reads the same file.</p>`],
- ["colab", "Colab pipeline", `
-<p><code>colab/train.sh</code> runs the full pipeline on a GPU: it downloads the weights, checks them, fetches contractor clips, labels the videos in <code>videos/&lt;mode&gt;/</code> with the IDM, and runs BC.</p>
-<p><b>Status:</b> not run. It needs a Colab or similar GPU session, which the maintainer starts by hand.</p>`],
- ["site", "Running this site", `
-<pre><code>python -m vpt_arena.site.server --port 7790 --root .</code></pre>
-<p>A public copy of this site is a static build of the same pages. The data comes from one snapshot that is rebuilt every 5 minutes; it leaves out the live view, game frames, player names and private server details.</p>
-<p>The local server listens on the loopback interface only, uses the Python standard library, and reads files under the root. It does not start processes. Its only writes are first-frame thumbnails under <code>runs/.site-cache/</code>. Pages are plain HTML, CSS and JavaScript with no external requests.</p>`],
-];
-pages.docs = async () => {
-  view.innerHTML = `<div class="docs"><nav class="toc" aria-label="Docs sections">${DOCS.map(([id, t]) => `<a href="#/docs/${id}">${t}</a>`).join("")}</nav>
-  <div class="doc"><h1>Docs</h1>${DOCS.map(([id, t, body]) => `<h2 id="doc-${id}">${t}</h2>${body}`).join("")}</div></div>`;
-  const sec = location.hash.split("/")[2];
-  if (sec) { const el = document.getElementById("doc-" + sec); if (el) el.scrollIntoView(); }
-};
-
-/* ---------- shell ---------- */
-$("#nav").innerHTML = PAGES.map(([k, t]) => `<a href="#/${k}" data-k="${k}">${t}</a>`).join("");
 let gen = 0;
+function segs() { return location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent); }
 async function route() {
   clearTimers();
-  const my = ++gen;
-  const k = (location.hash.split("/")[1] || "overview");
-  const key = pages[k] ? k : "overview";
-  document.querySelectorAll("#nav a").forEach(a => a.classList.toggle("on", a.dataset.k === key));
-  document.title = (PAGES.find(p => p[0] === key)[1]) + " - VPT Arena";
-  if (!(key === "docs" && document.querySelector(".docs"))) view.innerHTML = `<div class="empty">Loading</div>`;
-  try { await pages[key](); if (my !== gen) { return; } if (key !== "docs" || !location.hash.split("/")[2]) window.scrollTo(0, 0); }
-  catch (e) { if (my !== gen) return; view.innerHTML = `<div class="empty">Could not load this page: ${esc(e.message)}. ${STATIC ? "Try again in a minute." : "Is the server running?"}</div>`; }
+  const my = ++gen, s = segs(), k = s[0] || "overview";
+  const key = pages[k] ? k : null;
+  $$("#nav a").forEach(a => a.classList.toggle("on", a.dataset.k === key || (key === "modes" && a.dataset.k === "modes")));
+  const entry = PAGES.find(p => p[0] === key);
+  document.title = (entry ? entry[1] : "Page not found") + " - VPT Arena";
+  if (!key) { view.innerHTML = `<div class="nf"><div class="nf-ic">${pixelIcon("grid", 64)}</div><h1>Page not found</h1><p class="lede">There is no page at <code>${esc(location.hash || "/")}</code>.</p><p><a class="btn" href="#/overview">Back to the overview</a> <a class="btn ghost" href="#/modes">Browse modes</a></p></div>`; window.scrollTo(0, 0); return; }
+  if (!(key === "docs" && $(".docs"))) view.innerHTML = skel(key === "overview" ? "page" : "list");
+  try {
+    await pages[key](s.slice(1));
+    if (my !== gen) return;
+    view.classList.remove("rise"); void view.offsetWidth; view.classList.add("rise");
+    if (key !== "docs" || !s[1]) window.scrollTo(0, 0);
+  } catch (e) {
+    if (my !== gen) return;
+    view.innerHTML = `<div class="empty">Could not load this page: ${esc(e.message)}. ${STATIC ? "Try again in a minute." : "Is the server running?"}</div>`;
+  }
 }
-window.addEventListener("hashchange", route);
-$("#theme").onclick = () => {
-  const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
-  const nx = cur === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = nx;
-  try { localStorage.setItem("vpt-theme", nx); } catch (e) {}
-};
-const pill = async () => {
-  try { const d = await api("/api/live"), p = $("#livepill"); p.className = "pill " + (d.online ? "on" : "off"); $("span", p).textContent = d.online ? (d.status.state || "online") : "offline"; }
-  catch (e) { /* server away */ }
-};
-if (STATIC) { paintPill(); setInterval(paintPill, 30000); api("/api/overview").catch(() => {}); }
-else { pill(); setInterval(pill, 3000); }
-route();
+
+/* ---------- chart fullscreen ---------- */
+const chartObs = new MutationObserver(() => {
+  $$(".card.chart:not([data-xb])", view).forEach(c => {
+    if (!c.querySelector("svg.ch")) return;
+    c.dataset.xb = "1";
+    const b = document.createElement("button"); b.type = "button"; b.className = "xb"; b.setAttribute("aria-label", "Open chart fullscreen"); b.title = "Open fullscreen"; b.innerHTML = FS_ICON;
+    c.appendChild(b);
+  });
+});
+chartObs.observe(view, { childList: true, subtree: true });
+document.addEventListener("click", e => {
+  const b = e.target.closest && e.target.closest(".xb");
+  if (!b) return;
+  let ov = $("#chartfs");
+  if (!ov) { ov = document.createElement("div"); ov.id = "chartfs"; ov.className = "chartfs"; ov.setAttribute("role", "dialog"); ov.setAttribute("aria-modal", "true"); ov.dataset.fsbox = "1"; document.body.appendChild(ov); }
+  const card = b.closest(".card").cloneNode(true);
+  $$(".xb", card).forEach(x => x.remove());
+  ov.innerHTML = `<button type="button" class="lb-close" aria-label="Close">Close</button><div class="cfs-body"></div>`;
+  $(".cfs-body", ov).appendChild(card);
+  ov.hidden = false; wireCharts(ov); wireMulti(ov);
+  const rq = ov.requestFullscreen || ov.webkitRequestFullscreen; if (rq) Promise.resolve(rq.call(ov)).catch(() => {});
+  $(".lb-close", ov).focus();
+});
+document.addEventListener("click", e => {
+  const ov = $("#chartfs");
+  if (ov && !ov.hidden && e.target.closest && (e.target === ov || e.target.closest(".lb-close") && ov.contains(e.target))) {
+    ov.hidden = true; if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }
+});
+
+/* ---------- keyboard: shortcuts overlay, g-then-key navigation, f for fullscreen ---------- */
+const GO = { o: "overview", d: "dashboard", s: "simulate", t: "training", m: "modes", l: "league", a: "data", v: "live", h: "docs" };
+let gArmed = 0;
+function helpOverlay(show) {
+  let ov = $("#kbhelp");
+  if (!ov) {
+    ov = document.createElement("div"); ov.id = "kbhelp"; ov.className = "lightbox kb"; ov.setAttribute("role", "dialog"); ov.setAttribute("aria-label", "Keyboard shortcuts"); ov.hidden = true;
+    ov.innerHTML = `<div class="kbcard"><h3>Keyboard shortcuts</h3><dl><dt><kbd>?</kbd></dt><dd>Show or hide this list</dd><dt><kbd>g</kbd> then <kbd>o</kbd></dt><dd>Overview</dd><dt><kbd>g</kbd> then <kbd>d</kbd></dt><dd>Dashboard</dd><dt><kbd>g</kbd> then <kbd>s</kbd></dt><dd>Simulate</dd><dt><kbd>g</kbd> then <kbd>t</kbd></dt><dd>Training</dd><dt><kbd>g</kbd> then <kbd>m</kbd></dt><dd>Modes</dd><dt><kbd>g</kbd> then <kbd>l</kbd></dt><dd>League</dd><dt><kbd>g</kbd> then <kbd>a</kbd></dt><dd>Data</dd><dt><kbd>g</kbd> then <kbd>v</kbd></dt><dd>Live</dd><dt><kbd>g</kbd> then <kbd>h</kbd></dt><dd>Docs</dd><dt><kbd>f</kbd></dt><dd>Fullscreen: the video under the pointer, or this page's main view (Live, Dashboard)</dd><dt><kbd>t</kbd></dt><dd>Switch light and dark</dd><dt><kbd>/</kbd></dt><dd>Focus the search box</dd><dt><kbd>Esc</kbd></dt><dd>Close a dialog or leave fullscreen</dd></dl><button class="btn sm" type="button">Close</button></div>`;
+    document.body.appendChild(ov);
+    ov.addEventListener("click", e => { if (e.target === ov || e.target.closest("button")) ov.hidden = true; });
+  }
+  ov.hidden = show === undefined ? !ov.hidden : !show;
+}
+document.addEventListener("keydown", e => {
+  const t = e.target, typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+  if (e.metaKey || e.ctrlKey || e.altKey || typing) return;
+  const k = e.key;
+  if (k === "Escape") { const h = $("#kbhelp"); if (h) h.hidden = true; const c = $("#chartfs"); if (c) c.hidden = true; $$(".pfs").forEach(x => x.classList.remove("pfs")); document.body.classList.remove("nofs"); return; }
+  if (k === "?") { e.preventDefault(); helpOverlay(); return; }
+  if (gArmed && Date.now() - gArmed < 1500) { gArmed = 0; if (GO[k] && pages[GO[k]]) { e.preventDefault(); location.hash = "#/" + GO[k]; } return; }
+  if (k === "g") { gArmed = Date.now(); return; }
+  if (k === "/") { const q = $("input[type=search]"); if (q) { e.preventDefault(); q.focus(); } return; }
+  if (k === "t") { $("#theme").click(); return; }
+  if (k === "f") {
+    e.preventDefault();
+    const hover = $(".vbox:hover"), el = hover || lastBoxIfVisible();
+    if (document.fullscreenElement || document.webkitFullscreenElement) { toggleFullscreen(document.fullscreenElement || document.webkitFullscreenElement); return; }
+    if (hover) { toggleFullscreen(hover); return; }
+    if (window.fsHook) { window.fsHook(); return; }
+    if (el) toggleFullscreen(el);
+  }
+});
+function lastBoxIfVisible() { return lastBox && lastBox.isConnected ? lastBox : null; }

@@ -380,6 +380,194 @@ class EmptyRootTest(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+GOOD_SPEC = {}
+NODE = shutil.which("node") or str(Path.home() / ".nvm/versions/node/v24.15.0/bin/node")
+
+
+class SimLabTest(unittest.TestCase):
+    """Simulation Lab: the validation rules (Python mirror and generated JS), the generated worker and clip routes."""
+
+    @classmethod
+    def setUpClass(cls):
+        from tools import publish_site as ps
+        cls.ps = ps
+        cls.spec = ps.load_sim_spec()
+        cls.models = ["baseline", "latest", "round-0", "round-1"]
+        d = cls.spec["defaults"]
+        import copy
+        def v(**kw):
+            x = copy.deepcopy(d)
+            for k, val in kw.items():
+                x[k] = val
+            return x
+        def nested(key, **kw):
+            x = copy.deepcopy(d)
+            x[key].update(kw)
+            return x
+        many = copy.deepcopy(d)
+        many["opponents"] = [{"type": "zombie", "count": 4}, {"type": "husk", "count": 3}]
+        cls.cases = [
+            ("defaults", d, True), ("empty object takes defaults", {}, True), ("round tag", v(model="round-1"), True),
+            ("no opponents", v(opponents=[]), True), ("goal bed", v(goal={"type": "bed", "distance": 20}), True),
+            ("unknown model", v(model="round-9"), False), ("unknown key", v(extra=1), False),
+            ("nested unknown key", nested("arena", colour="red"), False), ("seconds too big", v(seconds=121), False),
+            ("seconds float", v(seconds=60.5), False), ("seconds is a bool", v(seconds=True), False),
+            ("episodes zero", v(episodes=0), False), ("difficulty above 1", v(difficulty=1.5), False),
+            ("difficulty string", v(difficulty="1"), False), ("bad floor", nested("arena", floor="dirt"), False),
+            ("arena too small", nested("arena", size=2), False), ("bow not a bool", nested("player", bow=1), False),
+            ("blocks too many", nested("player", blocks=65), False), ("seven opponents", many, False),
+            ("too many groups", v(opponents=[{"type": "zombie"}] * 5), False), ("opponent without type", v(opponents=[{"count": 1}]), False),
+            ("opponent distance 2", v(opponents=[{"type": "zombie", "distance": 2}]), False), ("goal far", v(goal={"type": "bed", "distance": 31}), False),
+            ("not an object", [], False), ("name empty", v(name="  "), False), ("name markup", v(name="<b>x</b>"), False),
+            ("name too long", v(name="x" * 41), False), ("unknown base mode", v(base_mode="nope"), False),
+        ]
+
+    def test_spec_embedded_in_worker_and_page(self):
+        js = self.ps.worker_js(self.spec)
+        self.assertIn(json.dumps(self.spec["limits"], separators=(",", ":"))[:40], js)
+        self.assertIn('"opponents_total_max":6', js)
+        self.assertIn("duels_sword", js)
+        for route in ("/api/sim", "/api/sims", "\\/sims\\/", "\\/clips(60)?", "_60", "simindex", "simreq:", "simstat:", "simclip:", "simclip60:", "trailer:main", "/trailer.mp4", "/live/status.json"):
+            self.assertIn(route, js)
+        routes = json.loads(self.ps.ROUTES_JSON)["include"]
+        for r in ("/data.json", "/api/*", "/clips/*", "/clips60/*", "/sims/*", "/live/*", "/trailer*"):
+            self.assertIn(r, routes)
+        d = self.tmp_dist()
+        self.assertIn("VPT_SIM", (d / "index.html").read_text())
+        self.assertIn("round-0", self.spec.get("models", "round-N") + "round-0")
+        self.assertEqual(self.ps.check_dist(d, "{}"), [])
+
+    def tmp_dist(self):
+        d = Path(tempfile.mkdtemp(prefix="vpt-dist-test-"))
+        self.addCleanup(shutil.rmtree, d, True)
+        self.ps.build_dist(d / "dist", self.spec)
+        return d / "dist"
+
+    def test_python_rules(self):
+        for name, spec, ok in self.cases:
+            out, errs = self.ps.validate_spec(spec, self.spec, self.models)
+            self.assertEqual(not errs, ok, f"{name}: {errs}")
+            self.assertEqual(out is not None, ok, name)
+        out, _ = self.ps.validate_spec({}, self.spec, self.models)
+        self.assertEqual(out, {**self.spec["defaults"], "opponents": [{**self.spec["defaults"]["opponents"][0]}]})
+
+    @unittest.skipUnless(Path(NODE).exists(), "node not installed")
+    def test_js_matches_python(self):
+        d = self.tmp_dist()
+        (d / "cases.json").write_text(json.dumps([c[1] for c in self.cases]))
+        runner = d / "run.js"
+        runner.write_text("""
+const fs=require('fs'),vm=require('vm');
+const src=fs.readFileSync(process.argv[2],'utf8').replace('export default','globalThis.W =');
+const ctx={crypto:require('crypto').webcrypto,Response,URL,TextEncoder,console};vm.createContext(ctx);
+vm.runInContext(src+';globalThis.validateSpec=validateSpec;',ctx);
+const cases=JSON.parse(fs.readFileSync(process.argv[3],'utf8'));
+console.log(JSON.stringify(cases.map(c=>{const r=ctx.validateSpec(c,%s);return {ok:!!r.spec,spec:r.spec}})));
+""" % json.dumps(self.models))
+        import subprocess
+        r = subprocess.run([NODE, str(runner), str(d / "_worker.js"), str(d / "cases.json")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        js = json.loads(r.stdout)
+        for (name, spec, ok), res in zip(self.cases, js):
+            py, errs = self.ps.validate_spec(spec, self.spec, self.models)
+            self.assertEqual(res["ok"], not errs, f"JS and Python disagree on: {name}")
+            if py is not None:
+                self.assertEqual(res["spec"], py, name)
+
+    @unittest.skipUnless(Path(NODE).exists(), "node not installed")
+    def test_worker_endpoints_with_fake_kv(self):
+        d = self.tmp_dist()
+        runner = d / "w.mjs"
+        runner.write_text("""
+import fs from 'fs';
+const src=fs.readFileSync(process.argv[2],'utf8').replace('export default','globalThis.W =');
+(0,eval)(src);
+const kv=new Map([['models',JSON.stringify(['baseline','latest','round-0'])],['clip:round-0:duels_sword',new Uint8Array([0,1,2,3,4,5,6,7,8,9]).buffer]]);
+const env={DATA:{async get(k,o){const v=kv.get(k);if(v===undefined)return null;if(o&&o.type==='arrayBuffer')return v;return v;},async put(k,v){kv.set(k,v);}},ASSETS:{fetch:async()=>new Response('asset')}};
+const call=(path,init,ip)=>W.fetch(new Request('https://x.test'+path,{...init,headers:{'x-forwarded-for':ip||'1.1.1.1',...(init&&init.headers)}}),env);
+const out={};
+const body=JSON.stringify({name:'t'});
+const r1=await call('/api/sim',{method:'POST',body}); out.submit=[r1.status,(await r1.json())];
+out.bad=(await call('/api/sim',{method:'POST',body:JSON.stringify({seconds:999})})).status;
+out.badModel=(await call('/api/sim',{method:'POST',body:JSON.stringify({model:'round-7'})})).status;
+await call('/api/sim',{method:'POST',body},'1.1.1.1');await call('/api/sim',{method:'POST',body},'1.1.1.1');
+out.limited=(await call('/api/sim',{method:'POST',body},'1.1.1.1')).status;
+out.otherIp=(await call('/api/sim',{method:'POST',body},'2.2.2.2')).status;
+const id=out.submit[1].id;
+const g=await call('/api/sim/'+id); out.get=[g.status,(await g.json()).status];
+kv.set('simstat:'+id,JSON.stringify({status:'done',updated:1,result:{episodes:[{return:1,won:true,died:false,steps:10,damage_dealt:3,kills:1,clip:true}],model_tag:'round-0',base_mode:'duels_sword',seconds_simulated:1}}));
+const l=await (await call('/api/sims')).json(); out.list=[l.sims.length,l.sims.find(s=>s.id===id).status,l.sims.find(s=>s.id===id).clips];
+out.missing=(await call('/api/sim/aaaaaaaaaa')).status;
+const rg=await call('/clips/round-0/duels_sword.mp4',{headers:{range:'bytes=2-5'}});
+out.range=[rg.status,rg.headers.get('content-range'),rg.headers.get('content-type'),rg.headers.get('accept-ranges'),(await rg.arrayBuffer()).byteLength];
+const open=await call('/clips/round-0/duels_sword.mp4',{headers:{range:'bytes=7-'}}); out.open=[open.status,open.headers.get('content-range')];
+const suf=await call('/clips/round-0/duels_sword.mp4',{headers:{range:'bytes=-3'}}); out.suffix=[suf.status,suf.headers.get('content-range')];
+const bad=await call('/clips/round-0/duels_sword.mp4',{headers:{range:'bytes=50-60'}}); out.range416=[bad.status,bad.headers.get('content-range')];
+const full=await call('/clips/round-0/duels_sword.mp4'); out.full=[full.status,full.headers.get('content-length'),full.headers.get('cache-control')];
+out.none=(await call('/clips/round-0/nope.mp4')).status;
+out.asset=await (await call('/index.html')).text();
+console.log(JSON.stringify(out));
+""")
+        import subprocess
+        r = subprocess.run([NODE, str(runner), str(d / "_worker.js")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        o = json.loads(r.stdout)
+        self.assertEqual(o["submit"][0], 200)
+        self.assertRegex(o["submit"][1]["id"], r"^[0-9a-z]{10}$")
+        self.assertEqual((o["bad"], o["badModel"]), (400, 400))
+        self.assertEqual((o["limited"], o["otherIp"]), (429, 200))
+        self.assertEqual(o["get"], [200, "queued"])
+        self.assertEqual(o["list"], [4, "done", 1])
+        self.assertEqual(o["missing"], 404)
+        self.assertEqual(o["range"], [206, "bytes 2-5/10", "video/mp4", "bytes", 4])
+        self.assertEqual(o["open"], [206, "bytes 7-9/10"])
+        self.assertEqual(o["suffix"], [206, "bytes 7-9/10"])
+        self.assertEqual(o["range416"], [416, "bytes */10"])
+        self.assertEqual(o["full"], [200, "10", "public, max-age=86400"])
+        self.assertEqual((o["none"], o["asset"]), (404, "asset"))
+
+
+class ClipsAndFramesTest(unittest.TestCase):
+    def test_clip_urls_rewritten_and_filtered(self):
+        from tools import publish_site as ps
+        g = "https://github.com/x/y/releases/download/round-0/clip-duels_sword.mp4"
+        snap = {"cloud": {"clips": {"round-0": {"duels_sword": g, "uhc": g}}, "clips60": {"round-0": {"duels_sword": g}}},
+                "overview": {"clips": [{"tag": "round-0", "mode": "duels_sword", "name": "S", "url": g, "url60": g}], "cloud": {}},
+                "modes": {"modes": [{"key": "duels_sword", "clip": {"tag": "round-0", "url": g, "url60": g}}, {"key": "uhc", "clip": {"tag": "round-0", "url": g}}]}}
+        import copy
+        a = ps.rewrite_clips(copy.deepcopy(snap))
+        self.assertEqual(a["overview"]["clips"][0]["url"], "/clips/round-0/duels_sword.mp4")
+        self.assertEqual(a["overview"]["clips"][0]["url60"], "/clips60/round-0/duels_sword.mp4")
+        self.assertEqual(a["cloud"]["clips"]["round-0"]["uhc"], "/clips/round-0/uhc.mp4")
+        b = ps.rewrite_clips(copy.deepcopy(snap), {("round-0", "duels_sword")}, set())   # only the 30 fps one is in KV
+        self.assertNotIn("url60", b["overview"]["clips"][0])
+        self.assertEqual(b["cloud"]["clips60"], {})
+        self.assertIsNone(b["modes"]["modes"][1]["clip"])
+        self.assertEqual(b["modes"]["modes"][0]["clip"]["url"], "/clips/round-0/duels_sword.mp4")
+        self.assertNotIn("github.com", json.dumps(b))
+
+    def test_frames_in_snapshot_and_scrub_ignores_base64(self):
+        from tools import publish_site as ps
+        tmp = Path(tempfile.mkdtemp(prefix="vpt-frames-test-"))
+        try:
+            run = tmp / "runs" / "r2-w01"
+            run.mkdir(parents=True)
+            (run / "status.json").write_text(json.dumps({"job": "r2-w01", "state": "running", "round": 2, "modes": ["duels_sword", "uhc"], "updated": time.time(),
+                                                         "per_mode": {"duels_sword": {"episodes": 2, "return": 1.0, "win_rate": 0.5}}}))
+            jpg = b"\xff\xd8\xff" + b"rcon@gmail" * 3 + b"\xff\xd9"           # base64 of this is not what matters; the check must skip it
+            (run / "frame0.jpg").write_bytes(jpg)
+            (run / "frame1.jpg").write_bytes(b"not a jpeg")
+            from vpt_arena.site.server import Arena
+            fr = ps.build_frames(tmp, Arena(tmp).api_workers()["workers"])["frames"]
+            self.assertEqual(len(fr), 1)
+            self.assertEqual((fr[0]["job"], fr[0]["mode"], fr[0]["round"], fr[0]["win_rate"]), ("r2-w01", "duels_sword", 2, 0.5))
+            self.assertTrue(fr[0]["img"].startswith("data:image/jpeg;base64,"))
+            payload = json.dumps({"x": "data:image/jpeg;base64,cmNvbgBBQQ=="})
+            self.assertEqual(ps.check_text("t", ps.DATAURL_RE.sub("data:image/jpeg;base64,", payload)), [])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 def serve(port):
     tmp = Path(tempfile.mkdtemp(prefix="vpt-site-view-"))
     make_fixture(tmp)

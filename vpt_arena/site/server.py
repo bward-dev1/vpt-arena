@@ -377,7 +377,7 @@ class Arena:
     def api_cloud(self):
         d = read_json(self.root / "runs" / "cloud_status.json", None)
         if not isinstance(d, dict):
-            return {"updated": None, "jobs": [], "releases": [], "clips": {}, "repo": None}
+            return {"updated": None, "jobs": [], "releases": [], "clips": {}, "clips60": {}, "repo": None}
         jobs = []
         for j in (d.get("jobs") if isinstance(d.get("jobs"), list) else []):
             if not isinstance(j, dict):
@@ -389,6 +389,13 @@ class Arena:
                          "updated": to_ts(j.get("updated")),
                          "progress": str(j.get("progress") or ""),
                          "run": j.get("run") if isinstance(j.get("run"), str) and NAME_RE.match(j["run"].split("/")[-1]) else None})
+        clips60 = {}
+        if isinstance(d.get("clips60"), dict):
+            for tag, mm in d["clips60"].items():
+                if isinstance(mm, dict) and TAG_RE.match(str(tag)):
+                    ok = {str(m): u for m, u in mm.items() if isinstance(u, str) and u.startswith("https://github.com/") and NAME_RE.match(str(m))}
+                    if ok:
+                        clips60[str(tag)] = ok
         rels = [r for r in (d.get("releases") if isinstance(d.get("releases"), list) else []) if isinstance(r, str) and TAG_RE.match(r)]
         clips = {}
         if isinstance(d.get("clips"), dict):
@@ -399,13 +406,14 @@ class Arena:
                         clips[str(tag)] = ok
         repo = d.get("repo") if isinstance(d.get("repo"), str) and d["repo"].startswith("https://github.com/") else None
         return {"updated": d.get("updated") if num(d.get("updated")) else None, "jobs": jobs,
-                "releases": rels, "clips": clips, "repo": repo}
+                "releases": rels, "clips": clips, "clips60": clips60, "repo": repo}
 
     def newest_clip(self, cloud, mode):
         for tag in cloud["releases"] + [t for t in cloud["clips"] if t not in cloud["releases"]]:
             u = cloud["clips"].get(tag, {}).get(mode)
             if u:
-                return {"tag": tag, "url": u}
+                u60 = cloud.get("clips60", {}).get(tag, {}).get(mode)
+                return {"tag": tag, "url": u, **({"url60": u60} if u60 else {})}
         return None
 
     def api_clips(self, n=6):
@@ -416,7 +424,8 @@ class Arena:
             for mode, url in sorted(cloud["clips"].get(tag, {}).items()):
                 if mode not in seen and len(out) < n:
                     seen.add(mode)
-                    out.append({"tag": tag, "mode": mode, "name": names.get(mode, mode), "url": url})
+                    u60 = cloud.get("clips60", {}).get(tag, {}).get(mode)
+                    out.append({"tag": tag, "mode": mode, "name": names.get(mode, mode), "url": url, **({"url60": u60} if u60 else {})})
         return out
 
     # -- rounds: per release, per mode win rate and return (parsed from league match scores)
