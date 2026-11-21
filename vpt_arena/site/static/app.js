@@ -374,9 +374,10 @@ const DOCS = [
 <ul>
 <li>12 workers start at the same time. Each worker trains 2 game modes. Workers run MineStudio on Minecraft 1.16.5.</li>
 <li>Opponents are armed mobs in sky arenas, standing in for players. There is no live server and no other person involved.</li>
+<li>Opponent strength follows a curriculum: round 0 used full-strength opponents; from round 1 they start at 0.45 of full strength (fewer armour pieces, weapons one tier lower) and gain 0.15 per round until full strength.</li>
 <li>Training is PPO with a KL penalty that pulls the policy toward the policy the round started from.</li>
 <li>When the workers finish, their policies are merged into one by federated averaging, and the result is released as <code>round-N</code>.</li>
-<li>Each release is then evaluated on all 23 modes against the scripted arena bots, which hold an Elo of 1000. The original VPT foundation model is evaluated the same way and appears as <code>baseline</code>. A short gameplay clip of every mode is attached to the release.</li>
+<li>Each release is then evaluated on all 23 modes, 3 games each, at a fixed opponent strength of 0.5, against the scripted arena bots, which hold an Elo of 1000. The original VPT foundation model is evaluated the same way and appears as <code>baseline</code>. A short gameplay clip of every mode is attached to the release.</li>
 <li>A round takes about 2.5 hours. The runners have no GPU, so the game renders on the CPU at about 20 frames per second per simulation.</li>
 </ul>
 <p>A script on a local machine reads worker status files and release assets every few minutes and writes the data this site shows: the Cloud table, the Workers and Rounds sections on Training, the League page and the clips. The Rounds table compares releases per mode so improvement from one round to the next is visible. Source code and releases: <a href="${REPO_URL}">${REPO_URL.replace("https://", "")}</a>.</p>`],
