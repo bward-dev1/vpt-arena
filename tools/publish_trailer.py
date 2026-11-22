@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -33,7 +34,15 @@ def main():
             if len(data) > LIMIT:
                 print(f"skip {name}: {len(data)} bytes is over {LIMIT}")
                 continue
-            kv.put_bytes(key, data)
+            for attempt in range(1, 6):
+                try:
+                    kv.put_bytes(key, data)
+                    break
+                except Exception as e:  # flaky uplink: retry the whole PUT
+                    print(f"{key}: attempt {attempt} failed: {e}")
+                    if attempt == 5:
+                        raise
+                    time.sleep(5 * attempt)
             print(f"{key}: {len(data):,} bytes written")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
