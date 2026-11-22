@@ -1,1 +1,1 @@
-{"job": "r1-w10", "state": "running", "round": 1, "modes": ["kitpvp", "spleef"], "started": 1795299867.654163, "iter": 608, "env_steps": 48640, "fps": 7.9, "per_mode": {"kitpvp": {"episodes": 12, "return": -5.856555494875001, "win_rate": 0.0}, "spleef": {"episodes": 38, "return": -1.3972017539473682, "win_rate": 0.13157894736842105}}, "minutes_left": 3.4, "updated": 1795308666.525394}
+{"job": "r1-w10", "state": "finished", "round": 1, "modes": ["kitpvp", "spleef"], "started": 1795299867.654163, "iter": 624, "env_steps": 49920, "updated": 1795308883.9971426}
