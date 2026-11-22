@@ -1,1 +1,1 @@
-{"job": "r4-w07", "state": "running", "round": 4, "modes": ["bedwars_squads", "capture_the_wool"], "started": 1795333296.934169, "iter": 22, "env_steps": 1760, "fps": 18.2, "per_mode": {}, "minutes_left": 144.0, "updated": 1795333655.1424644}
+{"job": "r4-w07", "state": "running", "round": 4, "modes": ["bedwars_squads", "capture_the_wool"], "started": 1795333296.934169, "iter": 40, "env_steps": 3200, "fps": 17.3, "per_mode": {}, "minutes_left": 140.8, "updated": 1795333846.2119389}
