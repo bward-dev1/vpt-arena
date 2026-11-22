@@ -1,0 +1,1 @@
+{"kind": "rl", "arch": "1x", "started": 1795310622.1429574, "args": {"modes": ["duels_uhc", "duels_nodebuff"], "round": 2, "T": 40, "lr": 3e-05, "kl_coef": 0.1, "minutes": 150.0, "platform": "github-actions", "difficulty": 0.6}}
