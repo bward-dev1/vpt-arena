@@ -1,0 +1,1 @@
+{"job": "r2-w06", "state": "running", "round": 2, "modes": ["bedwars_solo", "bedwars_doubles"], "started": 1795312291.6445408, "iter": 9, "env_steps": 720, "fps": 19.7, "per_mode": {"bedwars_solo": {"episodes": 1, "return": -4.489680577305337, "win_rate": 0.0, "difficulty": 0.6}}, "minutes_left": 147.1, "updated": 1795312463.1658947}
