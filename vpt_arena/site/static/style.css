@@ -426,3 +426,4 @@ em.tg{color:var(--accent2)}
 tr.refrow td{background:var(--panel2);font-size:.88rem}tr.refrow.sel td{border-top:1px solid var(--line2)}tr.refrow.ref td{color:var(--muted)}
 .cmp-b .cb span{display:flex;align-items:center}
 [hidden]{display:none!important}
+.cb span{background:color-mix(in srgb,var(--panel) 80%,transparent);padding:0 6px;border-radius:99px;right:3px;top:-1px}
