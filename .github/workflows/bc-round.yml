@@ -1,0 +1,52 @@
+name: bc-round
+# Behaviour cloning on teacher demonstrations: start from a release (round-N), fine-tune on the demo artifacts of
+# the given teacher-demos runs, release <out_tag>, evaluate it, and optionally continue RL from it.
+on:
+  workflow_dispatch:
+    inputs:
+      base_tag: {description: "release to start from (round-N)", required: true}
+      demo_runs: {description: "space-separated teacher-demos run ids", required: true}
+      out_tag: {description: "release tag for the result", required: true}
+      steps: {description: "optimizer steps", default: "1200"}
+      next_round: {description: "if set, start rl-round with this round number from out_tag", default: ""}
+permissions:
+  contents: write
+  actions: write
+jobs:
+  bc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: |
+          pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -q numpy opencv-python-headless attrs
+      - name: Data and weights
+        run: |
+          mkdir -p demos w
+          for r in ${{ inputs.demo_runs }}; do gh run download "$r" -D "demos/$r" || true; done
+          find demos -name "*.jsonl" | wc -l
+          du -sh demos
+          gh release download "${{ inputs.base_tag }}" -p global.weights -O w/base.weights
+      - name: Behaviour cloning
+        run: |
+          python -m vpt_arena.train_bc --arch 1x --weights w/base.weights --data demos --run run \
+            --batch 4 --T 64 --accum 1 --steps "${{ inputs.steps }}" --lr 1e-5 --warmup 100 --kl-coef 0.05 \
+            --eval-every 200 --eval-chunks 4 --save-every 200 --device cpu 2>&1 | grep -v "^\s*$" | tail -n 200
+          tail -n 3 run/log.jsonl
+      - name: Release
+        run: |
+          cp run/policy.weights global.weights
+          tail -n 50 run/log.jsonl > bc_log.jsonl
+          gh release create "${{ inputs.out_tag }}" global.weights bc_log.jsonl --prerelease \
+            --title "BC on teacher demos (${{ inputs.out_tag }})" \
+            --notes "Behaviour cloning of ${{ inputs.base_tag }} on scripted-teacher PvP demonstrations (runs ${{ inputs.demo_runs }})."
+          gh workflow run eval-round.yml -f tag=${{ inputs.out_tag }} -f episodes=3
+      - name: Continue RL
+        if: ${{ inputs.next_round != '' }}
+        run: gh workflow run rl-round.yml -f round=${{ inputs.next_round }} -f weights_tag=${{ inputs.out_tag }} -f minutes=150 -f max_rounds=8
