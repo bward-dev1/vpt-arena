@@ -33,8 +33,15 @@ MELEE = ["duels_sword", "duels_classic", "duels_uhc", "duels_nodebuff", "duels_c
 
 
 def yaw_pitch(info):
-    p = info.get("player_pos") or {}
-    return float(p.get("yaw", 0.0)), float(p.get("pitch", 0.0))
+    """Facing from whichever info block carries it (MineStudio player_pos, or MineRL location_stats)."""
+    for key in ("player_pos", "location_stats"):
+        p = info.get(key)
+        if isinstance(p, dict) and "yaw" in p:
+            return float(np.asarray(p["yaw"]).reshape(-1)[0]), float(np.asarray(p["pitch"]).reshape(-1)[0])
+    return None
+
+
+_SHOWN = {"keys": False}
 
 
 def wrap(a):
@@ -52,15 +59,22 @@ class Teacher:
     def target_direction(self):
         """Ask the game which way the nearest opponent is; returns (yaw, pitch) or None. Restores facing after."""
         sim = self.env.sim
-        yaw0, pitch0 = yaw_pitch(self.env.prev)
+        cur = yaw_pitch(self.env.prev)
+        if cur is None:
+            if not _SHOWN["keys"]:
+                _SHOWN["keys"] = True
+                pp = self.env.prev.get("player_pos")
+                print(json.dumps({"dbg_keys": sorted(self.env.prev)[:40], "player_pos": str(pp)[:200],
+                                  "loc": str(self.env.prev.get("location_stats"))[:300]}), flush=True)
+            return None
+        yaw0, pitch0 = cur
         try:
             _, _, _, info = sim.env.execute_cmd(
                 "/tp @p ~ ~ ~ facing entity @e[type=!player,type=!item,type=!arrow,distance=..48,limit=1,sort=nearest] eyes")
         except Exception:
             return None
-        p = info.get("player_pos") or info.get("location_stats") or {}
-        yaw = float(p.get("yaw", yaw0)) if isinstance(p, dict) else yaw0
-        pitch = float(p.get("pitch", pitch0)) if isinstance(p, dict) else pitch0
+        got = yaw_pitch(info) or (yaw0, pitch0)
+        yaw, pitch = got
         try:
             sim.env.execute_cmd(f"/tp @p ~ ~ ~ {yaw0:.2f} {pitch0:.2f}")
         except Exception:
@@ -71,7 +85,7 @@ class Teacher:
 
     def act(self):
         a = noop_env_action()
-        yaw0, pitch0 = yaw_pitch(self.env.prev)
+        yaw0, pitch0 = yaw_pitch(self.env.prev) or (0.0, 0.0)
         if self.t % 5 == 0 or self.cached is None:
             self.cached = self.target_direction()
         tgt = self.cached
@@ -101,11 +115,17 @@ class Teacher:
         return a
 
 
+def env_teacher_tgt(env):
+    t = getattr(env, "_teacher", None)
+    return [round(v, 1) for v in t.cached] if t is not None and t.cached else None
+
+
 def record_episode(env, mode, out_dir, rng, max_steps):
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = out_dir / f"{mode}-{int(time.time() * 1000)}-{rng.randint(0, 9999):04d}"
     env.reset()
     teacher = Teacher(env, rng)
+    env._teacher = teacher
     writer = cv2.VideoWriter(str(stem) + ".mp4", cv2.VideoWriter_fourcc(*"mp4v"), 20, (640, 360))
     lines, ret, won, n = [], 0.0, False, 0
     pov = env.last_pov if getattr(env, "last_pov", None) is not None else None
@@ -127,7 +147,7 @@ def record_episode(env, mode, out_dir, rng, max_steps):
         if n <= 14 or done:
             print(json.dumps({"dbg": mode, "n": n, "pos": info.get("pos"), "origin": [round(v, 1) for v in env.origin],
                               "cause": info.get("death_cause"), "cam": [round(float(x), 1) for x in a["camera"]],
-                              "atk": a["attack"]}), flush=True)
+                              "atk": a["attack"], "face": yaw_pitch(env.prev), "tgt": env_teacher_tgt(env)}), flush=True)
     writer.release()
     Path(str(stem) + ".jsonl").write_text("\n".join(lines) + "\n")
     meta = dict(mode=mode, source="teacher", weight=1.0, loss_weight=1.0, won=won, ret=round(ret, 2), frames=len(lines))
