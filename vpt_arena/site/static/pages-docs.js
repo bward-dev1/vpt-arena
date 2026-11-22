@@ -17,10 +17,10 @@ function roundsView(r, names) {
 function workersView(w, names) {
   if (!w.workers.length) return `<div class="empty">No workers reported yet. Each round starts 12 workers that train two modes each; their progress appears here, grouped by round.</div>`;
   const groups = new Map();
-  w.workers.forEach(x => { const k = x.round == null ? "other" : x.round; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); });
+  w.workers.forEach(x => { const k = x.round == null ? "other" : (x.track === "scratch" ? "s" : "") + x.round; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); });
   return [...groups].map(([k, list]) => {
     const by = {}; list.forEach(x => by[x.state] = (by[x.state] || 0) + 1);
-    return `<h3 style="margin:1.2em 0 .5em">${k === "other" ? "Other workers" : "Round " + k} <small style="color:var(--muted);font-weight:500">${list.length} worker(s): ${Object.entries(by).map(([s, n]) => n + " " + s).join(", ")}</small></h3>
+    return `<h3 style="margin:1.2em 0 .5em">${k === "other" ? "Other workers" : String(k).startsWith("s") ? "From-scratch round " + String(k).slice(1) : "VPT round " + k} <small style="color:var(--muted);font-weight:500">${list.length} worker(s): ${Object.entries(by).map(([s, n]) => n + " " + s).join(", ")}</small></h3>
     <div class="tw"><table><thead><tr><th>Worker</th><th>State</th><th class="n">Iter</th><th class="n">Steps</th><th class="n">FPS</th><th class="n">Min left</th><th>Modes: return, win rate</th><th>Updated</th></tr></thead><tbody>
     ${list.map(x => `<tr><td><a href="#/training/${encodeURIComponent(x.job)}">${esc(x.job)}</a></td><td><span class="tag ${x.state}">${esc(x.state)}</span></td><td class="n">${x.iter ?? "-"}</td><td class="n">${x.env_steps == null ? "-" : Number(x.env_steps).toLocaleString()}</td><td class="n">${x.fps == null ? "-" : fmtN(x.fps, 1)}</td><td class="n">${x.minutes_left == null ? "-" : Math.round(x.minutes_left)}</td>
     <td class="wrap">${(x.modes.length ? x.modes : Object.keys(x.per_mode)).map(m => { const v = x.per_mode[m]; return `<div class="pm"><b>${esc(names[m] || m)}</b> ${v ? `return ${fmt(v.return, 3)}, win ${pct(v.win_rate)} <span class="mono">(${v.episodes} ep)</span>` : `<span class="mono">no episodes yet</span>`}</div>`; }).join("")}</td><td>${ago(x.updated)}</td></tr>`).join("")}
@@ -201,6 +201,9 @@ python -m vpt_arena.league table [--mode M]</code></pre>
 </ul>`],
  ["trailer", "Trailer", `
 <p>The project trailer is a short video made from real evaluation clips. It plays from the Overview page (Watch the trailer) and appears there once it has been published. The design notes for it, covering the look, pacing and how the footage was chosen, are in the repository: <a href="${REPO_URL}/blob/main/trailer/DESIGN.md">trailer/DESIGN.md</a>.</p>`],
+ ["tracks", "VPT and from-scratch tracks", `
+<p>Two tracks train side by side so that the value of pretraining can be measured. The <b>VPT track</b> starts from OpenAI's VPT model, which was pretrained on about 70,000 hours of YouTube Minecraft video. Its workers are named <code>r&lt;round&gt;-w&lt;n&gt;</code>, it releases <code>round-N</code>, and it trains with the image encoder frozen and an adaptive difficulty for each mode. The <b>from-scratch track</b> is a small policy of about 5 million parameters in the same architecture family, trained with no pretraining. It uses 6 workers with 4 modes each, named <code>s&lt;round&gt;-s&lt;n&gt;</code>, and releases <code>scratch-N</code>.</p>
+<p>Both tracks use the same arenas, the same PPO loop and the same evaluation (3 games per mode against the scripted bots). The Dashboard and Overview compare the newest <code>round-N</code> with <code>scratch-N</code> at the same round number. The Simulation Lab can run only the VPT <code>round-N</code> models for now.</p>`],
  ["colab", "Colab pipeline", `
 <p><code>colab/train.sh</code> runs the full pipeline on a GPU: it downloads the weights, checks them, fetches contractor clips, labels the videos in <code>videos/&lt;mode&gt;/</code> with the IDM, and runs BC.</p>
 <p><b>Status:</b> not run. It needs a Colab or similar GPU session, which the maintainer starts by hand.</p>`],

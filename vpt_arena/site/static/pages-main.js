@@ -3,7 +3,44 @@
 const isRound = t => /^round-\d+$/.test(t);
 function releaseTags(r) { return r.rounds.map(x => x.tag); }
 /* per release values for one mode: [{tag, win_rate, return, episodes}] in release order */
-function modeHistory(r, key) { return r.rounds.map(x => ({ tag: x.tag, ...(x.modes[key] || { win_rate: null, return: null, episodes: 0 }) })); }
+const isVpt = t => !/^scratch-/.test(t);
+const rnum = t => { const x = /^(?:round|scratch)-(\d+)$/.exec(t); return x ? +x[1] : null; };
+function modeHistory(r, key) { return r.rounds.filter(x => isVpt(x.tag)).map(x => ({ tag: x.tag, ...(x.modes[key] || { win_rate: null, return: null, episodes: 0 }) })); }
+
+/* ---------- VPT vs from-scratch ---------- */
+let cmpMetric = "win_rate";
+function compareData(r) {
+  const vpt = r.rounds.filter(x => /^round-\d+$/.test(x.tag)), sc = r.rounds.filter(x => /^scratch-\d+$/.test(x.tag));
+  const vn = new Map(vpt.map(x => [rnum(x.tag), x])), sn = new Map(sc.map(x => [rnum(x.tag), x]));
+  const common = [...vn.keys()].filter(n => sn.has(n)).sort((a, b) => b - a);
+  if (common.length) return { vpt, sc, a: vn.get(common[0]), b: sn.get(common[0]), same: true };
+  return { vpt, sc, a: vpt[vpt.length - 1] || null, b: sc[sc.length - 1] || null, same: false };
+}
+function compareHtml(r, mm) {
+  const c = compareData(r), f = cmpMetric;
+  const expl = `<p class="cmp-ex"><b>What differs:</b> the VPT track starts from OpenAI's VPT model, pretrained on about 70,000 hours of YouTube Minecraft video; the from-scratch track is a small policy of about 5 million parameters, the same architecture family, trained with no pretraining. <b>What is the same:</b> the arenas, the PPO training loop and the evaluation.</p>`;
+  const labels = {}, s1 = [], s2 = [];
+  c.vpt.forEach(x => { const n = rnum(x.tag); labels[n] = "round " + n; if (x.mean_win_rate != null) s1.push([n, x.mean_win_rate]); });
+  c.sc.forEach(x => { const n = rnum(x.tag); labels[n] = "round " + n; if (x.mean_win_rate != null) s2.push([n, x.mean_win_rate]); });
+  const line = s1.length || s2.length ? multiChart({ "VPT (round-N)": s1, "From scratch (scratch-N)": s2 }, "Mean win rate per round for the VPT and from-scratch tracks", { xLabels: labels, yRange: [0, 1], yFmt: v => Math.round(v * 100) + "%" }) : `<div class="empty">Nothing evaluated yet.</div>`;
+  let bars = "";
+  if (!c.sc.length) bars = `<div class="empty">No from-scratch release has been evaluated yet. The per-mode comparison fills in after <code>scratch-0</code>.</div>`;
+  else if (!c.a || !c.b) bars = `<div class="empty">Waiting for a VPT release to compare against.</div>`;
+  else {
+    const keys = Object.keys(mm).filter(k => c.a.modes[k] || c.b.modes[k]);
+    const vals = keys.flatMap(k => [c.a.modes[k] && c.a.modes[k][f], c.b.modes[k] && c.b.modes[k][f]]).filter(v => v != null);
+    const lo = f === "win_rate" ? 0 : Math.min(0, ...vals), hi = f === "win_rate" ? 1 : Math.max(...vals, lo + 1e-9);
+    const w = v => v == null ? 0 : Math.max(1, (v - lo) / (hi - lo) * 100), lab = v => v == null ? "-" : f === "win_rate" ? pct(v) : fmt(v, 3);
+    bars = `<p class="upd" style="margin-top:0">${c.same ? `Both at round ${rnum(c.a.tag)}` : `Newest of each, <b>${esc(c.a.tag)}</b> and <b>${esc(c.b.tag)}</b> (no round number has both yet)`}: <b>${esc(c.a.tag)}</b> against <b>${esc(c.b.tag)}</b>. Mean win rate ${pct(c.a.mean_win_rate)} against ${pct(c.b.mean_win_rate)}.</p>
+    <div class="cmp-legend"><span><i style="background:var(--accent)"></i>VPT ${esc(c.a.tag)}</span><span><i style="background:var(--accent2)"></i>From scratch ${esc(c.b.tag)}</span></div>
+    <div class="cmp">${keys.map(k => `<div class="cmp-row"><a href="#/modes/${encodeURIComponent(k)}">${modeIcon(k, 16)} ${esc(mm[k].name)}</a><div class="cmp-b"><div class="cb"><i class="v" style="width:${w(c.a.modes[k] && c.a.modes[k][f])}%"></i><span>${lab(c.a.modes[k] && c.a.modes[k][f])}</span></div><div class="cb"><i class="s" style="width:${w(c.b.modes[k] && c.b.modes[k][f])}%"></i><span>${lab(c.b.modes[k] && c.b.modes[k][f])}</span></div></div></div>`).join("")}</div>`;
+  }
+  return `${expl}<div class="grid cols-2"><div class="card chart"><h3>Mean win rate per round</h3>${line}</div><div class="card"><div class="toolbar" style="margin-top:0"><span class="seg"><button class="chip ${f === "win_rate" ? "on" : ""}" data-cm="win_rate">Win rate</button><button class="chip ${f === "return" ? "on" : ""}" data-cm="return">Return</button></span></div>${bars}</div></div>`;
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest && e.target.closest("[data-cm]"); if (!b || !window.__cmp) return;
+  cmpMetric = b.dataset.cm; const el = $("#cmpbox"); if (el) { el.innerHTML = compareHtml(window.__cmp.r, window.__cmp.mm); wireMulti(el); }
+});
 function totalSteps(w) { return w.workers.reduce((a, x) => a + (x.env_steps || 0), 0); }
 
 pages.overview = async () => {
@@ -40,12 +77,15 @@ pages.overview = async () => {
     <div class="card"><div class="ficon">${pixelIcon("swords", 30)}</div><h3>One network, ${o.modes} modes</h3><p>A learned embedding for the mode, the combat ruleset (1.8 or 1.9+) and the team size tells the same network which game it is in.</p></div>
     <div class="card"><div class="ficon">${pixelIcon("cloud", 30)}</div><h3>Trained in public</h3><p>Each round runs 12 workers on GitHub Actions. Results, clips and failures are published here, round by round.</p></div>
   </div>
+  <h2 class="kick">VPT against from scratch</h2>
+  <div id="cmpbox"></div>
   <h2 class="kick">Project phases</h2>
   <div class="tw"><table><thead><tr><th>Phase</th><th>What</th><th>Live status</th><th>Tested</th><th>State</th></tr></thead><tbody>
   ${o.phases.map(p => `<tr><td>${p.phase}. ${esc(p.name)}</td><td class="wrap">${esc(p.what)}</td><td class="wrap">${esc(p.status)}</td><td class="wrap">${esc(p.tested)}</td><td><span class="tag ${p.state}">${p.state === "done" ? "has data" : p.state === "active" ? "running" : "empty"}</span></td></tr>`).join("")}
   </tbody></table></div>
   <p class="upd">Status comes from the files on disk (weights, data, runs, live), not from the README. The Tested column is a fixed note on how far each phase has been checked; see Docs.</p>`;
   $$(".counters .v[data-n]").forEach(el => counter(el, +el.dataset.n, el.dataset.big ? { fmt: big } : {}));
+  window.__cmp = { r, mm: names }; $("#cmpbox").innerHTML = compareHtml(r, names); wireMulti($("#cmpbox"));
   initTrailer();
   if (typeof mountLiveBadge === "function") mountLiveBadge($("#lbslot"));
   const hv = $("#herov");

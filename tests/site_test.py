@@ -363,6 +363,47 @@ class CloudRoundsTest(unittest.TestCase):
         self.assertTrue(snap["workers"]["workers"])
 
 
+class TracksTest(unittest.TestCase):
+    """The from-scratch track: workers s*, releases scratch-N, ordering, difficulty, and what the Simulation Lab may run."""
+
+    def setUp(self):
+        from vpt_arena.site.server import Arena
+        self.tmp = Path(tempfile.mkdtemp(prefix="vpt-tracks-test-"))
+        runs = self.tmp / "runs"
+        for job, rnd in (("r1-w01", 1), ("s0-s01", 0)):
+            (runs / job).mkdir(parents=True)
+            (runs / job / "status.json").write_text(json.dumps({"job": job, "state": "running", "round": rnd, "modes": ["duels_sword"], "updated": time.time(),
+                                                               "per_mode": {"duels_sword": {"episodes": 2, "return": 1.0, "win_rate": 0.5, "difficulty": 0.45}}}))
+        players = {t: {"elo": 1000, "games": 3, "wins": 1, "kind": "checkpoint", "by_mode": {"duels_sword": 1000}} for t in ("scratch-1", "round-0", "scratch-0", "baseline")}
+        matches = [{"t": i, "mode": "duels_sword", "a": t, "b": "arena-bots", "winner": None, "score": "1/3 wins, return -1.0"} for i, t in enumerate(players)]
+        (runs / "league.json").write_text(json.dumps({"players": players, "matches": matches}))
+        self.a = Arena(self.tmp)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_workers_have_tracks_and_difficulty(self):
+        w = {x["job"]: x for x in self.a.api_workers()["workers"]}
+        self.assertEqual((w["r1-w01"]["track"], w["s0-s01"]["track"]), ("vpt", "scratch"))
+        self.assertEqual(w["s0-s01"]["round"], 0)
+        self.assertEqual(w["s0-s01"]["per_mode"]["duels_sword"]["difficulty"], 0.45)
+        self.assertEqual([x["job"] for x in self.a.api_workers()["workers"]][0], "r1-w01")   # VPT first
+
+    def test_release_order_and_tracks(self):
+        r = self.a.api_rounds()["rounds"]
+        self.assertEqual([x["tag"] for x in r], ["baseline", "round-0", "scratch-0", "scratch-1"])
+        self.assertEqual([x["track"] for x in r], ["vpt", "vpt", "scratch", "scratch"])
+
+    def test_scratch_not_offered_to_simulation_lab(self):
+        from tools import publish_site as ps
+        tags = ps.model_tags({"cloud": {"releases": ["round-0", "scratch-0"]}, "rounds": {"rounds": [{"tag": "baseline"}, {"tag": "scratch-1"}]}})
+        self.assertEqual(tags, ["round-0", "baseline"])
+        spec = ps.load_sim_spec()
+        out, errs = ps.validate_spec({"model": "scratch-0"}, spec, ["baseline", "latest", "round-0"])
+        self.assertIsNone(out)
+        self.assertTrue(errs)
+
+
 class EmptyRootTest(unittest.TestCase):
     def test_empty_root(self):
         tmp = Path(tempfile.mkdtemp(prefix="vpt-site-empty-"))

@@ -76,6 +76,7 @@ pages.simulate = async args => {
   if (args && args[0]) return simStatus(args[0], S);
   const [mm, cloud] = await Promise.all([modeMap(), api("/api/cloud")]);
   const models = ["baseline", "latest", ...cloud.releases.filter(t => t !== "baseline" && t !== "latest")];
+  const modelOpts = sel => models.map(x => `<option value="${esc(x)}" ${x === sel ? "selected" : ""} ${/^scratch-/.test(x) ? "disabled" : ""}>${esc(x === "latest" ? "latest (newest round)" : /^scratch-/.test(x) ? x + " (from scratch, not runnable yet)" : x)}</option>`).join("");
   let sim = clone(S.defaults), angles = defaultAngles(sim.opponents.length), presetOn = "sword";
   try { const c = sessionStorage.getItem("vpt-sim-clone"); if (c) { sim = JSON.parse(c); sessionStorage.removeItem("vpt-sim-clone"); angles = defaultAngles(sim.opponents.length); presetOn = ""; } } catch (e) { /* ignore */ }
   const P = presetDefs(S), E = S.enums, L = S.limits;
@@ -99,7 +100,7 @@ pages.simulate = async args => {
   function buildForm() {
     form.innerHTML = `<fieldset class="fs"><legend>Scenario</legend><div class="frow">
       ${fld("Name", `<input type="text" data-p="name" maxlength="${L.name_max}" value="${esc(sim.name)}">`)}
-      ${fld("Model", `<select data-p="model">${opt(models, sim.model, x => x === "latest" ? "latest (newest round)" : x)}</select>`)}
+      ${fld("Model", `<select data-p="model">${modelOpts(sim.model)}</select>`)}
       ${fld("Game mode it was trained on", `<select data-p="base_mode">${spec_modes()}</select>`, "Conditions the policy; it does not change the arena.")}
       ${fld("Episodes", rng("episodes", L.episodes[0], L.episodes[1], 1, sim.episodes))}${fld("Length of each", rng("seconds", L.seconds[0], L.seconds[1], 5, sim.seconds, " s"))}
       ${fld("Opponent strength", rng("difficulty", 0, 1, 0.05, sim.difficulty))}${fld("Seed", `<input type="number" data-p="seed" min="${L.seed[0]}" max="${L.seed[1]}" value="${sim.seed}">`)}</div></fieldset>
@@ -185,10 +186,10 @@ async function simStatus(id, S) {
       <div class="tw"><table><thead><tr><th>Episode</th><th>Outcome</th><th class="n">Return</th><th class="n">Damage dealt</th><th class="n">Kills</th><th class="n">Length</th></tr></thead><tbody>${eps.map((e, i) => `<tr><td>${i + 1}</td><td class="${e.won ? "res-ok" : "res-bad"}">${e.won ? "Won" : e.died ? "Died" : "Time up"}</td><td class="n">${fmt(e.return, 3)}</td><td class="n">${fmt(e.damage_dealt, 3)}</td><td class="n">${e.kills ?? "-"}</td><td class="n">${e.steps != null ? fmtN(e.steps / 20, 1) + " s" : "-"}</td></tr>`).join("")}</tbody></table></div>
       ${eps.some(e => e.clip) ? `<h2 class="kick">Episode clips</h2><div class="eps">${eps.map((e, i) => e.clip ? clipHtml({ tag: "episode " + (i + 1), url: `/sims/${id}/${i}.mp4`, url60: `/sims/${id}/${i}_60.mp4` }, e.won ? "won" : e.died ? "died" : "time up") : "").join("")}</div>` : `<p class="upd">No clips were recorded for this run.</p>`}` : ""}
     <h2 class="kick">Scenario</h2><div class="sim"><div class="card"><p class="sumtxt">${esc(summaryText(sp, mm))}</p></div><div class="card mapbox">${mapSvg(sp, defaultAngles(sp.opponents.length), false)}</div></div>
-    <h2 class="kick">Run with another model</h2><div class="toolbar"><select id="othermodel" aria-label="Model">${models.map(m => `<option ${m === sp.model ? "selected" : ""}>${esc(m)}</option>`).join("")}</select><button class="btn" id="rerun" type="button">Run this scenario with that model</button><span id="rerr" class="upd" style="margin:0"></span></div>`;
+    <h2 class="kick">Run with another model</h2><div class="toolbar"><select id="othermodel" aria-label="Model">${models.map(m => `<option ${m === sp.model ? "selected" : ""} ${/^scratch-/.test(m) ? "disabled" : ""}>${esc(/^scratch-/.test(m) ? m + " (not runnable yet)" : m)}</option>`).join("")}</select><button class="btn" id="rerun" type="button">Run this scenario with that model</button><span id="rerr" class="upd" style="margin:0"></span></div>`;
     $("#cloneb").onclick = () => { try { sessionStorage.setItem("vpt-sim-clone", JSON.stringify(sp)); } catch (e) { /* ignore */ } location.hash = "#/simulate"; };
     $("#rerun").onclick = async () => {
-      const b = $("#rerun"); b.disabled = true; const nx = { ...sp, model: $("#othermodel").value };
+      const b = $("#rerun"); b.disabled = true; const nx = { ...sp, model: $("#othermodel").value.replace(/ \(.*$/, "") };
       try { const rr = await fetch("/api/sim", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(nx) }); const j = await rr.json().catch(() => ({})); if (rr.ok && j.id) { location.hash = "#/simulate/" + j.id; return; } $("#rerr").textContent = j.error || "Refused (" + rr.status + ")."; } catch (e) { $("#rerr").textContent = "Could not reach the lab."; }
       b.disabled = false;
     };

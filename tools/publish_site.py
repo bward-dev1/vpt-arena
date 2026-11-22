@@ -605,13 +605,14 @@ DATAURL_RE = re.compile(r"data:image/jpeg;base64,[A-Za-z0-9+/=]+")
 
 def build_frames(root, workers):
     """Latest simulator frames (frame0/frame1.jpg in each worker's run dir) of the newest round, as data: URLs."""
-    rounds = [w["round"] for w in workers if w["round"] is not None]
-    out = []
-    if not rounds:
-        return {"frames": out}
-    top = max(rounds)
+    newest = {}
     for w in workers:
-        if w["round"] != top:
+        if w["round"] is not None:
+            t = w.get("track", "vpt")
+            newest[t] = max(newest.get(t, -1), w["round"])
+    out = []
+    for w in workers:
+        if w["round"] is None or w["round"] != newest.get(w.get("track", "vpt")):
             continue
         for slot in (0, 1):
             f = Path(root) / "runs" / w["job"] / f"frame{slot}.jpg"
@@ -624,10 +625,17 @@ def build_frames(root, workers):
                 continue
             mode = w["modes"][slot] if slot < len(w["modes"]) else None
             pm = w["per_mode"].get(mode) or {}
-            out.append({"job": w["job"], "round": w["round"], "state": w["state"], "mode": mode, "slot": slot, "updated": mt,
+            out.append({"job": w["job"], "track": w.get("track", "vpt"), "round": w["round"], "state": w["state"], "mode": mode, "slot": slot, "updated": mt,
                         "return": pm.get("return"), "win_rate": pm.get("win_rate"), "episodes": pm.get("episodes"),
                         "img": "data:image/jpeg;base64," + base64.b64encode(data).decode()})
     return {"frames": out}
+
+
+def _cap_workers(ws, per_track=48):
+    out = []
+    for trk in ("vpt", "scratch"):
+        out += [w for w in ws if w.get("track", "vpt") == trk][:per_track]
+    return out
 
 
 def build_snapshot(root):
@@ -655,7 +663,7 @@ def build_snapshot(root):
         "league": league,
         "cloud": a.api_cloud(),
         "rounds": a.api_rounds(),
-        "workers": {"workers": a.api_workers()["workers"][:60]},
+        "workers": {"workers": _cap_workers(a.api_workers()["workers"])},
         "frames": build_frames(root, a.api_workers()["workers"]),
         "live": {"online": False, "age": None, "status": None, "frame": False, "now": time.time()},
     }
@@ -907,6 +915,8 @@ def model_tags(snap):
     tags = list(snap.get("cloud", {}).get("releases") or []) + [r["tag"] for r in snap.get("rounds", {}).get("rounds", [])]
     seen, out = set(), []
     for t in tags:
+        if t.startswith("scratch-"):
+            continue          # the Simulation Lab can only run the 1x round-N models for now
         if t not in seen:
             seen.add(t)
             out.append(t)

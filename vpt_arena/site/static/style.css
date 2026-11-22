@@ -409,3 +409,12 @@ body.mission .mcb{grid-template-columns:minmax(0,1fr) minmax(0,1.2fr)}
 main{overflow-x:clip}
 code{overflow-wrap:anywhere}
 @media (max-width:760px){.hero-clip{box-shadow:var(--shadow),4px 4px 0 color-mix(in srgb,var(--accent) 18%,transparent)}}
+
+.grp{font-size:.95rem;margin:1.4em 0 .6em;color:var(--muted);font-weight:650}
+.cmp-ex{color:var(--muted);max-width:90ch;margin:.2em 0 14px;font-size:.93rem}.cmp-ex b{color:var(--text)}
+.cmp-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:.8rem;color:var(--muted);margin:.4em 0 8px}.cmp-legend i{display:inline-block;width:12px;height:8px;border-radius:2px;margin-right:6px}
+.cmp{display:grid;gap:7px;max-height:420px;overflow:auto;padding-right:4px}
+.cmp-row{display:grid;grid-template-columns:minmax(110px,.8fr) 2fr;gap:12px;align-items:center;font-size:.84rem}.cmp-row a{color:var(--text);display:flex;gap:6px;align-items:center;min-width:0}
+.cmp-b{display:grid;gap:3px}.cb{position:relative;height:13px;background:var(--panel2);border-radius:4px;overflow:hidden}
+.cb i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;transition:width .6s}.cb i.v{background:var(--accent)}.cb i.s{background:var(--accent2)}
+.cb span{position:absolute;right:6px;top:-2px;font-size:.7rem;color:var(--text);font-variant-numeric:tabular-nums;text-shadow:0 0 3px var(--panel)}

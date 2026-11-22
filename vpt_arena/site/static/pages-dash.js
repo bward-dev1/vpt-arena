@@ -76,7 +76,7 @@ function workerCard(x, mm, frames) {
     <div class="wt"><b>${esc(x.job)}</b><span class="tag ${esc(x.state)}">${esc(x.state)}</span></div>
     <div class="pbar" role="progressbar" aria-valuenow="${Math.round(frac * 100)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${Math.round(frac * 100)}%"></i></div>
     <div class="wm"><span>steps <b>${x.env_steps == null ? "-" : Number(x.env_steps).toLocaleString()}</b></span><span>fps <b>${x.fps == null ? "-" : fmtN(x.fps, 1)}</b></span><span><b>${x.minutes_left == null ? (x.state === "finished" ? "done" : "-") : Math.round(x.minutes_left) + " min"}</b> left</span></div>
-    ${(x.modes.length ? x.modes : Object.keys(x.per_mode)).map(m => { const v = x.per_mode[m]; return `<div class="wpm"><button type="button" class="linkb" data-mf="${esc(m)}">${esc(mm[m] ? mm[m].name : m)}</button><span>${v ? `return <b>${fmt(v.return, 3)}</b>, win <b>${pct(v.win_rate)}</b>` : "no episodes yet"}</span></div>`; }).join("")}
+    ${(x.modes.length ? x.modes : Object.keys(x.per_mode)).map(m => { const v = x.per_mode[m]; return `<div class="wpm"><button type="button" class="linkb" data-mf="${esc(m)}">${esc(mm[m] ? mm[m].name : m)}</button><span>${v ? `return <b>${fmt(v.return, 3)}</b>, win <b>${pct(v.win_rate)}</b>${v.difficulty != null ? `, difficulty <b>${fmt(v.difficulty, 2)}</b>` : ""}` : "no episodes yet"}</span></div>`; }).join("")}
     <button type="button" class="btn sm ghost wx-t" aria-expanded="${open}" data-wx="${esc(x.job)}">${open ? "Hide curves" : "Show curves"}</button>
     <div class="wx" ${open ? "" : "hidden"}>${open ? '<div class="empty">Loading</div>' : ""}</div></div></article>`;
 }
@@ -91,8 +91,14 @@ async function fillCurves(card, job) {
   } catch (e) { box.innerHTML = `<div class="empty">No curves are published for this worker.</div>`; }
 }
 
+function prevRelease(r, idx) {
+  const t = r.rounds[idx].tag, n = rnum(t);
+  if (t === "baseline") return null;
+  if (/^scratch-/.test(t)) return n > 0 ? r.rounds.find(x => x.tag === "scratch-" + (n - 1)) || null : null;
+  return r.rounds.find(x => x.tag === (n > 0 ? "round-" + (n - 1) : "baseline")) || null;
+}
 function evalTable(r, mm, relIdx) {
-  const rel = r.rounds[relIdx], prev = relIdx > 0 ? r.rounds[relIdx - 1] : null;
+  const rel = r.rounds[relIdx], prev = prevRelease(r, relIdx);
   let rows = Object.keys(mm).filter(k => rel.modes[k]).map(k => { const v = rel.modes[k], p = prev && prev.modes[k]; return { k, name: mm[k].name, ep: v.episodes, wins: v.wins, wr: v.win_rate, ret: v.return, dw: p && p.win_rate != null && v.win_rate != null ? v.win_rate - p.win_rate : null, dr: p && p.return != null && v.return != null ? v.return - p.return : null }; });
   if (dashMode) rows = rows.filter(x => x.k === dashMode);
   const key = dashSort.k, dir = dashSort.dir;
@@ -122,7 +128,8 @@ pages.dashboard = async () => {
   const [mmAll, o, r, w] = await Promise.all([modeMap(), api("/api/overview"), api("/api/rounds"), api("/api/workers")]);
   const mm = mmAll;
   let fr = null; try { fr = await api("/api/frames"); } catch (e) { fr = null; }
-  const mkState = () => roundState({ workers: w.workers, cloud: o.cloud, rounds: r });
+  const vptRounds = () => ({ ...r, rounds: r.rounds.filter(x => isVpt(x.tag)) });
+  const mkState = () => roundState({ workers: w.workers.filter(x => x.track !== "scratch"), cloud: o.cloud, rounds: r });
   view.innerHTML = `<div class="dash">
   <div class="dh"><div><h1>Dashboard</h1><p class="lede">The live training view: where the current round is, how every worker is doing and how each release compares. For the project summary see the <a href="#/overview">Overview</a>.</p></div>
     <div class="dh-actions"><span id="lbslot"></span><button type="button" class="btn sm" id="mcbtn">Mission control</button><button type="button" class="btn sm ghost" data-copy="${esc(location.href.split("#")[0])}#/dashboard">Copy link</button></div></div>
@@ -134,14 +141,18 @@ pages.dashboard = async () => {
     const frames = (fr && fr.frames) || [];
     if (dashRel == null || dashRel >= r.rounds.length) dashRel = Math.max(0, r.rounds.length - 1);
     const modesPresent = Object.keys(mm);
-    const wl = w.workers.filter(x => x.round === (st.round >= 0 ? (st.phase === 0 ? st.round - 1 : st.round) : x.round)).filter(x => !dashMode || x.modes.includes(dashMode) || x.per_mode[dashMode]);
+    const trackWorkers = trk => { const ws = w.workers.filter(x => (x.track || "vpt") === trk && x.round != null), top = ws.length ? Math.max(...ws.map(x => x.round)) : null; return ws.filter(x => x.round === top).filter(x => !dashMode || x.modes.includes(dashMode) || x.per_mode[dashMode]); };
+    const sc = w.workers.filter(x => x.track === "scratch" && x.round != null), scTop = sc.length ? Math.max(...sc.map(x => x.round)) : null, scCur = sc.filter(x => x.round === scTop), scRun = scCur.filter(x => x.state === "running");
+    const scEnd = scRun.length ? Math.max(...scRun.map(x => x.minutes_left != null && x.updated ? x.updated + x.minutes_left * 60 : 0)) : 0;
+    const scLine = sc.length ? `<p class="upd"><b>From-scratch track.</b> Round ${scTop}: ${scRun.length} of ${scCur.length} workers running${scEnd ? ", training ends about " + clock(scEnd) : ""}.</p>` : `<p class="upd"><b>From-scratch track.</b> No worker has reported yet.</p>`;
+    const wgroup = (trk, title) => { const l = trackWorkers(trk); return `<h3 class="grp">${title}</h3>` + (l.length ? `<div class="wgrid">${l.map(x => workerCard(x, mm, frames)).join("")}</div>` : `<div class="empty">${w.workers.some(x => (x.track || "vpt") === trk) ? "No worker in this round plays that mode." : "No workers reported yet."}</div>`); };
     $("#dyn").innerHTML = `
     <div class="mcb">
       <div class="card mc-main"><p class="kick" style="margin-top:0">Current round</p><h2>${esc(st.headline)}</h2><p class="sub">${esc(st.detail)}</p>
         <div class="etaRow">${etaHtml(st)}</div>
         ${st.pct != null ? `<div class="pbar" style="margin-top:14px" role="progressbar" aria-valuenow="${Math.round(st.pct * 100)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${Math.round(st.pct * 100)}%"></i></div>` : ""}
         <div class="phase" aria-label="Round phases">${PHASES.map((p, i) => `<span class="${i === st.phase || (st.phase === 2 && i === 3 && false) ? "on" : st.phase > i ? "past" : ""}">${p}</span>`).join("")}</div>
-        <p class="upd"><b>Next round.</b> ${esc(st.next)}</p></div>
+        <p class="upd"><b>Next round.</b> ${esc(st.next)}</p>${scLine}</div>
       <div class="card mc-live"><p class="kick" style="margin-top:0">Live preview</p><div id="prevslot"><div class="empty">No live stream at the moment.</div></div></div>
     </div>
     <div class="grid stats">
@@ -150,19 +161,21 @@ pages.dashboard = async () => {
       <div class="card stat"><div class="k">Workers running</div><div class="v">${st.running.length}<span class="of"> / ${st.cur.length || 12}</span></div><div class="s">${fpsv.length ? "mean " + fmtN(fpsv.reduce((a, x) => a + x.fps, 0) / fpsv.length, 1) + " fps each" : "no fps reported"}</div></div>
       <div class="card stat"><div class="k">Releases evaluated</div><div class="v">${r.rounds.length}</div><div class="s">${r.rounds.length ? esc(r.rounds.map(x => x.tag).join(", ")) : "none yet"}</div></div>
     </div>
-    <h2 class="kick">Round timeline</h2><div class="card">${timelineHtml(r, st)}</div>
-    <div class="grid cols-2" style="margin-top:14px"><div class="card chart"><h3>Environment steps per round</h3>${stepsByRound(w)}</div><div class="card"><h3>Evaluation setup</h3><p class="upd" style="margin-top:0">Each release is evaluated on all ${modesPresent.length} modes, 3 games each, at a fixed opponent strength of 0.5, against the scripted arena bots. The baseline is the unmodified VPT model.</p></div></div>
+    <h2 class="kick">Round timeline</h2><div class="card">${timelineHtml(vptRounds(), st)}</div>
+    <div class="grid cols-2" style="margin-top:14px"><div class="card chart"><h3>Environment steps per round</h3>${stepsByRound({ workers: w.workers.filter(x => x.track !== "scratch") })}</div><div class="card"><h3>Evaluation setup</h3><p class="upd" style="margin-top:0">Each release is evaluated on all ${modesPresent.length} modes, 3 games each, at a fixed opponent strength of 0.5, against the scripted arena bots. The baseline is the unmodified VPT model.</p></div></div>
     <h2 class="kick">Mode filter</h2>
     <div class="toolbar chips"><button class="chip ${dashMode ? "" : "on"}" data-mf="">All modes</button>${modesPresent.map(k => `<button class="chip ${dashMode === k ? "on" : ""}" data-mf="${esc(k)}">${esc(mm[k].name)}</button>`).join("")}</div>
     <h2 class="kick">Workers${dashMode ? ` playing ${esc(mm[dashMode].name)}` : ""}</h2>
-    ${wl.length ? `<div class="wgrid">${wl.map(x => workerCard(x, mm, frames)).join("")}</div>` : `<div class="empty">${w.workers.length ? "No worker in this round plays that mode." : "No workers reported yet. Each round starts 12 workers that train two modes each."}</div>`}
+    ${wgroup("vpt", "VPT track (r* jobs, pretrained model)")}${wgroup("scratch", "From-scratch track (s* jobs, no pretraining)")}
     ${frames.length ? "" : `<p class="upd">Workers write a frame of each simulator every 3 minutes from round 2 onward; the thumbnails above fill in then.</p>`}
-    <h2 class="kick">Releases compared</h2>${meanChart(r)}
+    <h2 class="kick">Releases compared</h2>${meanChart(vptRounds())}
     <div class="toolbar" style="margin-top:14px"><span class="seg"><button class="chip ${dashMetric === "win_rate" ? "on" : ""}" data-metric="win_rate">Win rate</button><button class="chip ${dashMetric === "return" ? "on" : ""}" data-metric="return">Return</button></span><span class="upd" style="margin:0">per mode, across releases. Click a mode to filter.</span></div>
-    ${modeCharts(r, mm)}
+    ${modeCharts(vptRounds(), mm)}
+    <h2 class="kick">VPT against from scratch</h2><div id="cmpbox">${compareHtml(r, mm)}</div>
     <h2 class="kick">Evaluation table</h2>
-    ${r.rounds.length ? `<div class="scrub"><label for="relr">Release</label><input id="relr" type="range" min="0" max="${r.rounds.length - 1}" step="1" value="${dashRel}" aria-valuetext="${esc(r.rounds[dashRel].tag)}"><b id="relname">${esc(r.rounds[dashRel].tag)}</b><span class="upd" style="margin:0">drag to compare releases; the change columns show the difference from the release before</span></div><div id="evalslot">${evalTable(r, mm, dashRel)}</div>` : `<div class="empty">No release has been evaluated yet.</div>`}
+    ${r.rounds.length ? `<div class="scrub"><label for="relr">Release</label><input id="relr" type="range" min="0" max="${r.rounds.length - 1}" step="1" value="${dashRel}" aria-valuetext="${esc(r.rounds[dashRel].tag)}"><b id="relname">${esc(r.rounds[dashRel].tag)}</b><span class="upd" style="margin:0">drag to compare releases, both tracks included; the change columns show the difference from the same track's release before</span></div><div id="evalslot">${evalTable(r, mm, dashRel)}</div>` : `<div class="empty">No release has been evaluated yet.</div>`}
     <p class="upd">Snapshot ${o.cloud && o.cloud.updated ? "of the cloud status from " + when(o.cloud.updated) : "has no cloud status yet"}. ${STATIC ? "This page refreshes about once a minute." : ""}</p>`;
+    window.__cmp = { r, mm }; wireMulti($("#cmpbox"));
     mountLivePreviewOnce();
     tickEta();
     $$(".wcard").forEach(c => { if (dashOpen.has(c.dataset.job)) fillCurves(c, c.dataset.job); });

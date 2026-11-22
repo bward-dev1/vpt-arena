@@ -57,6 +57,11 @@ def read_jsonl(path):
     return rows
 
 
+def track_of(tag):
+    """Which training track a release or job belongs to: the VPT track (baseline, round-N, r* jobs) or from-scratch (scratch-N, s* jobs)."""
+    return "scratch" if re.match(r"^(scratch-\d+$|s\d+-)", str(tag)) else "vpt"
+
+
 TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 SCORE_RE = re.compile(r"(\d+)/(\d+) wins, return (-?[0-9.]+(?:e-?\d+)?)")
 
@@ -445,13 +450,16 @@ class Arena:
             if t == "baseline":
                 return (0, -1, t)
             mt = re.match(r"^round-(\d+)$", t)
-            return (0, int(mt.group(1)), t) if mt else (1, 0, t)
+            if mt:
+                return (0, int(mt.group(1)), t)
+            ms = re.match(r"^scratch-(\d+)$", t)
+            return (1, int(ms.group(1)), t) if ms else (2, 0, t)
         rounds = []
         for tag in sorted(tags, key=order):
             per = {mode: v | {"elo": tags[tag]["by_mode"].get(mode)} for (t, mode), v in latest.items() if t == tag}
             rates = [v["win_rate"] for v in per.values() if v["win_rate"] is not None]
             rets = [v["return"] for v in per.values()]
-            rounds.append({"tag": tag, "elo": tags[tag]["elo"], "modes": per,
+            rounds.append({"tag": tag, "track": track_of(tag), "elo": tags[tag]["elo"], "modes": per,
                            "mean_win_rate": sum(rates) / len(rates) if rates else None,
                            "mean_return": sum(rets) / len(rets) if rets else None})
         return {"rounds": rounds, "modes": [m["key"] for m in self.modes]}
@@ -479,15 +487,16 @@ class Arena:
             minutes = targs.get("minutes") if num(targs.get("minutes")) else None
             started = to_ts(st.get("started")) or to_ts(info.get("started"))
             if rnd is None:
-                mt = re.match(r"^r(\d+)-", p.name)
+                mt = re.match(r"^[rs](\d+)-", p.name)
                 rnd = int(mt.group(1)) if mt else None
             pm = {}
             for k, v in (st.get("per_mode") if isinstance(st.get("per_mode"), dict) else {}).items():
                 if isinstance(v, dict):
                     pm[str(k)] = {"episodes": int(v["episodes"]) if num(v.get("episodes")) else 0,
                                   "return": v.get("return") if num(v.get("return")) else None,
-                                  "win_rate": v.get("win_rate") if num(v.get("win_rate")) else None}
-            out.append({"job": p.name, "round": int(rnd) if rnd is not None else None, "state": state,
+                                  "win_rate": v.get("win_rate") if num(v.get("win_rate")) else None,
+                                  "difficulty": v.get("difficulty") if num(v.get("difficulty")) else None}
+            out.append({"job": p.name, "track": track_of(p.name), "round": int(rnd) if rnd is not None else None, "state": state,
                         "modes": [str(m) for m in st.get("modes", [])] if isinstance(st.get("modes"), list) else list(pm),
                         "iter": st.get("iter") if num(st.get("iter")) else None,
                         "env_steps": st.get("env_steps") if num(st.get("env_steps")) else None,
@@ -495,7 +504,7 @@ class Arena:
                         "minutes_left": st.get("minutes_left") if num(st.get("minutes_left")) else None,
                         "minutes": minutes, "started": started,
                         "updated": upd, "per_mode": pm})
-        out.sort(key=lambda w: (-(w["round"] if w["round"] is not None else -1), w["job"]))
+        out.sort(key=lambda w: (w["track"] != "vpt", -(w["round"] if w["round"] is not None else -1), w["job"]))
         return {"workers": out}
 
     # -- modes + overview
