@@ -33,7 +33,8 @@ export const At: React.FC<{from: number; dur: number; children?: React.ReactNode
 };
 
 export type ClipRef = {clip: string; clip60: string | null; dur: number};
-export const srcOf = (c: ClipRef, fps: number) => staticFile(fps >= 50 && c.clip60 ? c.clip60 : c.clip);
+// 60 fps source for 60 fps renders, and for slow motion in 30 fps renders (twice the real frames to stretch)
+export const srcOf = (c: ClipRef, fps: number, rate = 1) => staticFile((fps >= 50 || rate < 0.75) && c.clip60 ? c.clip60 : c.clip);
 
 type Ramp = {at: number; rate: number}[];
 const rateAt = (ramp: Ramp | undefined, t: number) => {
@@ -48,7 +49,6 @@ const rateAt = (ramp: Ramp | undefined, t: number) => {
 // Footage with a speed ramp: the clip is cut into 0.5 s slices, each played at the ramp's rate, with the source position carried across slices.
 export const Footage: React.FC<{c: ClipRef; start: number; dur: number; ramp?: Ramp; filter?: string; style?: React.CSSProperties}> = ({c, start, dur, ramp, filter, style}) => {
   const {fps} = useVideoConfig();
-  const src = srcOf(c, fps);
   const slices: {t0: number; len: number; rate: number; pos: number}[] = [];
   let pos = start;
   const step = ramp ? 0.5 : dur;
@@ -64,7 +64,7 @@ export const Footage: React.FC<{c: ClipRef; start: number; dur: number; ramp?: R
     <AbsoluteFill style={style}>
       {slices.map((s, i) => (
         <Sequence key={i} from={Math.round(s.t0 * fps)} durationInFrames={Math.max(1, Math.round(s.len * fps) + 1)}>
-          <OffthreadVideo src={src} startFrom={Math.round(s.pos * fps)} playbackRate={s.rate} muted style={{width: '100%', height: '100%', objectFit: 'cover', filter: filter || 'contrast(1.08) saturate(0.88) brightness(0.96)'}} />
+          <OffthreadVideo src={srcOf(c, fps, s.rate)} startFrom={Math.round(s.pos * fps)} playbackRate={s.rate} muted style={{width: '100%', height: '100%', objectFit: 'cover', filter: filter || 'contrast(1.08) saturate(0.88) brightness(0.96)'}} />
         </Sequence>
       ))}
     </AbsoluteFill>

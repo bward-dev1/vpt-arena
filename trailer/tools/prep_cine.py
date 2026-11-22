@@ -67,6 +67,8 @@ for m in improved:
     want |= {(first, m), (last, m)}
 want |= {(last, "duels_sword"), (last, "duels_classic")}
 want |= {(last, m) for m in ("duels_sumo", "spleef", "skywars_solo", "the_bridge", "bedwars_solo", "kitpvp", "tnt_run")}  # theatrical cut
+THEAT = ("duels_classic", "kitpvp", "duels_uhc", "survival_games", "uhc", "duels_combo")  # theatrical hand-picked shots
+want |= {(last, m) for m in THEAT}
 if rival:
     want.add((rival, "duels_sword"))
 if scr:
@@ -81,6 +83,30 @@ for t, m in sorted(want):
     if os.path.exists(c):
         clips[f"{t}/{m}"] = {"clip": c.replace(PUB + "/", ""), "clip60": c60.replace(PUB + "/", "") if os.path.exists(c60) else None, "dur": probe_dur(c)}
 print("clips:", len(clips), "of", len(want))
+
+# Theatrical: sharpened 1080p copies of the hand-picked clips (first 40 s only).
+# 2x nearest-neighbour keeps Minecraft's block edges hard, then lanczos to 1080p and a light unsharp.
+# The game's hint toasts sit in the top-right: one toast is hidden by the 2.39:1 crop; the stacked ones (first ~3 s) are avoided by the shot list.
+hd = {}
+os.makedirs(f"{PUB}/hd", exist_ok=True)
+VF = "scale=960:540:flags=neighbor,scale=1920:1080:flags=lanczos,unsharp=5:5:0.5"
+for m in THEAT:
+    k = f"{last}/{m}"
+    if k not in clips:
+        continue
+    out = {}
+    for key, src in (("clip", clips[k]["clip"]), ("clip60", clips[k]["clip60"])):
+        if not src:
+            continue
+        dst = f"hd/{last}-{key}-{m}.mp4"
+        r = run("ffmpeg", "-y", "-v", "error", "-t", "40", "-i", f"{PUB}/{src}", "-vf", VF, "-an", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "15", "-pix_fmt", "yuv420p", f"{PUB}/{dst}", check=False)
+        if r.returncode == 0:
+            out[key] = dst
+        else:
+            print("hd fail", m, key, r.stderr[-400:])
+    if out.get("clip"):
+        hd[k] = {"clip": out["clip"], "clip60": out.get("clip60"), "dur": 40.0}
+print("hd clips:", sorted(hd))
 
 # ---- HD footage (release `footage`): per-episode 60 fps mp4 + step log; highlights are cut from the log (damage dealt / taken, ending) ----
 os.makedirs(f"{PUB}/footage", exist_ok=True)
@@ -137,6 +163,6 @@ for t in rounds:
     if sm:
         steps_total += sum(int(j.get("env_steps", 0)) for j in sm.get("jobs", []))
 props = {"shots": shots, "pairs": pairs, "steps": steps_total, "tags": T, "rounds": rounds, "first": first, "last": last, "rival": rival, "scratch": scr, "improved": improved, "duelsBeaten": beat,
-         "duelsTotal": len(duels), "clips": clips, "names": names, "liveFrame": live, "liveShot": shot}
+         "duelsTotal": len(duels), "clips": clips, "hd": hd, "names": names, "liveFrame": live, "liveShot": shot}
 json.dump(props, open("trailer/props-cine.json", "w"), indent=1)
 print(json.dumps({k: (v if k != "tags" else {t: {"mean": round(x["mean"], 2), "wins": x["wins"], "games": x["games"]} for t, x in v.items()}) for k, v in props.items() if k not in ("clips", "names")}))

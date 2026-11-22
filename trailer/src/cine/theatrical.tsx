@@ -1,8 +1,8 @@
 import React from 'react';
-import {AbsoluteFill, Img, random, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
+import {AbsoluteFill, random, useCurrentFrame, useVideoConfig} from 'remotion';
 import {loadFont as loadAnton} from '@remotion/google-fonts/Anton';
 import {At, ClipRef, Furniture, H, K, Shot, W, clamp, ease, lerp, minus, useT} from './base';
-import {clipFor, endWindow, hasShot, shotName, shotRef, startFor} from './footage';
+import {clipFor} from './footage';
 
 const anton = loadAnton('normal', {weights: ['400'], subsets: ['latin']});
 type P = any;
@@ -63,6 +63,18 @@ const Hit: React.FC<{at: number; children: React.ReactNode; size: number; tint?:
   );
 };
 
+// Slashed zero: Anton's 0 and O look alike at title sizes.
+const Zero0: React.FC<{tint: 'steel' | 'red' | 'gold'}> = ({tint}) => (
+  <span style={{position: 'relative', display: 'inline-block'}}>
+    0
+    <span style={{position: 'absolute', left: '50%', top: '50%', width: '0.085em', height: '0.66em', transform: 'translate(-50%,-46%) rotate(32deg)', borderRadius: '0.02em',
+      background: tint === 'red' ? 'linear-gradient(180deg,#ffd8d0,#d4483a 50%,#ff8e7c)' : tint === 'gold' ? 'linear-gradient(180deg,#fff0c8,#c28a22 50%,#f0bd5a)' : 'linear-gradient(180deg,#fff,#8996a4 50%,#eef5fb)'}} />
+  </span>
+);
+const Num: React.FC<{text: string; tint?: 'steel' | 'red' | 'gold'}> = ({text, tint = 'steel'}) => (
+  <>{text.split(/(0)/).map((p, i) => (p === '0' ? <Zero0 key={i} tint={tint} /> : <React.Fragment key={i}>{p}</React.Fragment>))}</>
+);
+
 const Small: React.FC<{at: number; until?: number; children: React.ReactNode; size?: number; color?: string; serif?: boolean; italic?: boolean; track?: number; style?: React.CSSProperties}> = ({at, until, children, size = 40, color = K.text, serif = true, italic = false, track = 0.3, style}) => {
   const t = useT();
   const k = ease((t - at) / 0.9) * (until != null ? 1 - ease((t - until) / 0.7) : 1);
@@ -74,16 +86,40 @@ const Center: React.FC<{children: React.ReactNode; gap?: number; top?: number}> 
   <AbsoluteFill style={{alignItems: 'center', justifyContent: top != null ? 'flex-start' : 'center', paddingTop: top, gap}}>{children}</AbsoluteFill>
 );
 
-const Dark: React.FC<{c: ClipRef; start: number; dur: number; blur?: number; dim?: number; ramp?: any; push?: [number, number]; drift?: [number, number]; grade?: number}> = ({c, start, dur, blur = 0, dim = 0.5, ramp, push = [1.05, 1.16], drift = [0, -30], grade = 1.3}) => (
+// Footage under the titles. The 2.39:1 crop plus a push of at least 1.07 keeps the clips' hint toast (top-right) and hotbar/hearts (bottom) out of frame.
+const PUSH_MIN = 1.07;
+const Dark: React.FC<{c: ClipRef; start: number; dur: number; blur?: number; dim?: number; ramp?: any; push?: [number, number]; drift?: [number, number]; grade?: number; fadeIn?: number}> = ({c, start, dur, blur = 0, dim = 0.5, ramp, push = [1.08, 1.18], drift = [0, -30], grade = 1.3, fadeIn}) => (
   <AbsoluteFill>
-    <Shot c={c} start={start} dur={dur} blur={blur} dim={dim} ramp={ramp} push={push} drift={drift} filter={HEAVY} grade={grade} />
-    {/* the old eval clips carry a game hint box in the top-right corner: fade that corner to black */}
-    <div style={{position: 'absolute', right: 0, top: 0, width: 560, height: 170, background: 'radial-gradient(ellipse at 100% 0%, rgba(0,0,0,0.97) 0%, rgba(0,0,0,0.92) 48%, rgba(0,0,0,0) 80%)'}} />
+    <Shot c={c} start={start} dur={dur} blur={blur} dim={dim} ramp={ramp} push={[Math.max(PUSH_MIN, push[0]), Math.max(PUSH_MIN, push[1])]} drift={drift} filter={HEAVY} grade={grade} fadeIn={fadeIn} />
   </AbsoluteFill>
 );
 
-const ref = (P: P, name: string, tag: string, mode: string): ClipRef => shotRef(P, name) || clipFor(P, tag, mode);
-const st = (P: P, name: string, len: number, fb = 10) => startFor(P, name, len, fb);
+
+// Hand-picked moments in the final round's eval clips (seconds into each clip), chosen by eye from 4 fps contact sheets:
+// opponents on screen and close, no stacked hint toasts. The sharpened 1080p copies (props.hd) are used when prep made them.
+const HERO: Record<string, [string, number]> = {
+  sunset: ['uhc', 2.3],            // ice spikes against a red sunset
+  sunsetSkel: ['uhc', 17.6],       // a skeleton walks out of the sunset
+  burning: ['duels_classic', 11.6], // two burning mobs close in
+  zombie: ['duels_classic', 12.7],  // burning zombie with a sword, right in front
+  pair: ['duels_classic', 17.0],    // flame pillar and a second mob
+  vindicator: ['kitpvp', 3.25],     // vindicator on the left, a burning mob lunges in
+  skeleton: ['duels_uhc', 30.9],    // skeleton drawing its bow
+  diamond: ['duels_uhc', 37.3],     // skeleton, then a diamond-armoured zombie
+  forest: ['survival_games', 15.9], // zombie coming through a dark forest
+  forest2: ['survival_games', 20.1],
+  dusk: ['survival_games', 0.0],    // forest at sunset
+  combo: ['duels_combo', 13.1],
+};
+const pick = (P: P, key: string): {c: ClipRef; at: number} => {
+  const [mode, at] = HERO[key];
+  const k = `${P.last}/${mode}`;
+  return {c: (P.hd && P.hd[k]) || clipFor(P, P.last, mode), at};
+};
+const Pick: React.FC<{P: P; k: string; dur: number; off?: number; blur?: number; dim?: number; ramp?: any; push?: [number, number]; drift?: [number, number]; grade?: number; fadeIn?: number}> = ({P, k, off = 0, ...r}) => {
+  const x = pick(P, k);
+  return <Dark c={x.c} start={x.at + off} {...r} />;
+};
 
 // ---------------- 0 - 12 s: cold open ----------------
 const Open: React.FC<{P: P}> = ({P}) => {
@@ -93,6 +129,9 @@ const Open: React.FC<{P: P}> = ({P}) => {
   const hb = t >= 9 ? Math.max(beat(t - 9), beat(t - 9.35) * 0.7) : 0;
   return (
     <AbsoluteFill style={{background: '#000'}}>
+      <At from={0.6} dur={8.4}>
+        <Pick P={P} k="sunset" dur={8.4} fadeIn={2.2} dim={0.55} ramp={[{at: 0, rate: 0.22}, {at: 8.4, rate: 0.22}]} push={[1.1, 1.24]} drift={[40, -40]} grade={1.1} />
+      </At>
       <Flash at={3.0} strength={0.35} dur={0.5} />
       <Center gap={22}>
         <Small at={3.5} until={6.4} size={34} track={0.5}>In a world where</Small>
@@ -100,8 +139,8 @@ const Open: React.FC<{P: P}> = ({P}) => {
       </Center>
       {t >= 9 && (
         <At from={9} dur={3}>
-          <Dark c={ref(P, 'r4-duels_sword', P.last, 'duels_sword')} start={hasShot(P, 'r4-duels_sword') ? 1.0 : 12} dur={3} dim={1} ramp={[{at: 0, rate: 0.25}, {at: 3, rate: 0.25}]} push={[1.02, 1.2]} drift={[0, -20]} grade={1.3} />
-          <div style={{position: 'absolute', left: 70, bottom: 56}}><Small at={0.6} size={20} serif={false} track={0.22} style={{textAlign: 'left'}}>round 4 / duels (sword)</Small></div>
+          <Pick P={P} k="burning" dur={3} dim={1} ramp={[{at: 0, rate: 0.45}, {at: 3, rate: 0.45}]} push={[1.08, 1.24]} drift={[0, -20]} grade={1.3} />
+          <div style={{position: 'absolute', left: 70, bottom: 56}}><Small at={0.6} size={20} serif={false} track={0.22} style={{textAlign: 'left'}}>round 4 / duels (classic)</Small></div>
         </At>
       )}
       {t >= 9 && <AbsoluteFill style={{background: 'radial-gradient(ellipse at center, rgba(0,0,0,0) 35%, rgba(0,0,0,0.9) 100%)', opacity: 0.35 + 0.55 * hb}} />}
@@ -116,16 +155,19 @@ const Cards: React.FC<{P: P}> = ({P}) => {
   return (
     <AbsoluteFill style={{background: '#000'}}>
       <At from={0} dur={3}>
-        <Dark c={ref(P, 'dolly-duels_sword', 'baseline', 'duels_sword')} start={hasShot(P, 'dolly-duels_sword') ? 0.5 : 12} dur={3} blur={6} dim={0.4} />
+        <Pick P={P} k="vindicator" dur={3} blur={5} dim={0.42} ramp={[{at: 0, rate: 0.3}, {at: 3, rate: 0.3}]} />
         <Center><Hit at={0} size={178}>{`${fmtM(P.steps)} million steps.`}</Hit></Center>
       </At>
       <At from={3} dur={3}>
-        <Dark c={ref(P, 'r4-spleef', P.last, 'spleef')} start={st(P, 'r4-spleef', 3, 12)} dur={3} blur={6} dim={0.4} />
+        <Pick P={P} k="skeleton" dur={3} blur={5} dim={0.42} ramp={[{at: 0, rate: 0.5}, {at: 3, rate: 0.5}]} />
         <Center><Hit at={0} size={158}>{`${rounds} rounds of training.`}</Hit></Center>
       </At>
       <At from={6} dur={2.25}>
-        <Dark c={ref(P, 'dolly-skywars_solo', 'baseline', 'skywars_solo')} start={hasShot(P, 'dolly-skywars_solo') ? 1 : 12} dur={2.25} blur={6} dim={0.4} />
+        <Pick P={P} k="forest" dur={2.25} blur={5} dim={0.5} ramp={[{at: 0, rate: 0.5}, {at: 2.25, rate: 0.5}]} />
         <Center><Hit at={0} size={196}>{`${n} game modes.`}</Hit></Center>
+      </At>
+      <At from={8.25} dur={3.75}>
+        <Pick P={P} k="pair" dur={3.75} fadeIn={0.5} dim={0.8} ramp={[{at: 0, rate: 0.3}, {at: 3.75, rate: 0.3}]} push={[1.1, 1.3]} drift={[0, -30]} grade={1.4} />
       </At>
     </AbsoluteFill>
   );
@@ -139,7 +181,7 @@ const Zero: React.FC<{P: P}> = ({P}) => {
     <AbsoluteFill style={{background: '#000'}}>
       <AbsoluteFill style={{background: 'radial-gradient(ellipse at 50% 55%, rgba(120,30,20,0.55), rgba(0,0,0,0) 60%)', opacity: ease((t - 0.1) / 0.8)}} />
       <Flash at={0} strength={1} dur={0.6} />
-      <Center><Hit at={0} size={400} tint="red" flare={1.4}>{`${w} wins.`}</Hit></Center>
+      <Center><Hit at={0} size={400} tint="red" flare={1.4}><Num text={`${w} wins.`} tint="red" /></Hit></Center>
     </AbsoluteFill>
   );
 };
@@ -147,15 +189,15 @@ const Zero: React.FC<{P: P}> = ({P}) => {
 // ---------------- 27 - 36 s: zombies, skeletons, vindicators, none defeated ----------------
 const Fought: React.FC<{P: P}> = ({P}) => {
   const parts = [
-    {from: 0, dur: 2.25, name: 'r4-duels_sword', mode: 'duels_sword', word: 'zombies.'},
-    {from: 2.25, dur: 2.25, name: 'r4-duels_classic', mode: 'duels_classic', word: 'skeletons.'},
-    {from: 4.5, dur: 1.5, name: 'r4-duels_sumo', mode: 'duels_sumo', word: 'vindicators.'},
+    {from: 0, dur: 2.25, k: 'zombie', word: 'zombies.', rate: 0.6},
+    {from: 2.25, dur: 2.25, k: 'skeleton', word: 'skeletons.', rate: 0.8},
+    {from: 4.5, dur: 1.5, k: 'vindicator', word: 'vindicators.', rate: 0.5},
   ];
   return (
     <AbsoluteFill style={{background: '#000'}}>
       {parts.map((q, i) => (
-        <At key={q.name} from={q.from} dur={q.dur}>
-          <Dark c={ref(P, q.name, P.last, q.mode)} start={st(P, q.name, q.dur, 14)} dur={q.dur} dim={0.55} blur={2} />
+        <At key={q.k} from={q.from} dur={q.dur}>
+          <Pick P={P} k={q.k} dur={q.dur} dim={0.6} blur={1.5} ramp={[{at: 0, rate: q.rate}, {at: q.dur, rate: q.rate}]} />
           <div style={{position: 'absolute', left: 0, right: 0, top: 70, display: 'flex', justifyContent: 'center'}}>
             <Small at={0.05} size={34} track={0.45}>It has fought</Small>
           </div>
@@ -163,7 +205,7 @@ const Fought: React.FC<{P: P}> = ({P}) => {
         </At>
       ))}
       <At from={6} dur={3}>
-        <Dark c={ref(P, 'r4-duels_sword', P.last, 'duels_sword')} start={hasShot(P, 'r4-duels_sword') && P.shots['r4-duels_sword'].hurt.length ? Math.max(0, P.shots['r4-duels_sword'].hurt[0] - 1.5) : st(P, 'r4-duels_sword', 3, 20)} dur={3} dim={0.45} ramp={[{at: 0, rate: 0.35}, {at: 3, rate: 0.35}]} blur={3} />
+        <Pick P={P} k="diamond" dur={3} dim={0.5} blur={2} ramp={[{at: 0, rate: 0.45}, {at: 3, rate: 0.45}]} />
         <Center gap={0}>
           <Small at={0} size={36} track={0.45}>It has defeated</Small>
           <Hit at={0} size={240} tint="red" y="55%">none of them.</Hit>
@@ -174,33 +216,23 @@ const Fought: React.FC<{P: P}> = ({P}) => {
 };
 
 // ---------------- 36 - 54 s: three hero shots in slow motion ----------------
-const findFall = (P: P): string | undefined => {
-  const s = P.shots || {};
-  const cand = Object.keys(s).filter((k) => k.startsWith('r4-') && s[k].kind === 'play' && s[k].endT && (s[k].endHp ?? 0) > 1);
-  return cand[0] || (hasShot(P, 'r4-duels_sumo') ? 'r4-duels_sumo' : undefined);
-};
-const Hero: React.FC<{P: P}> = ({P}) => {
-  const fall = findFall(P);
-  return (
-    <AbsoluteFill style={{background: '#000'}}>
-      <At from={0} dur={6}>
-        <Dark c={fall ? (shotRef(P, fall) as ClipRef) : clipFor(P, P.last, 'duels_sumo')} start={fall ? endWindow(P, fall, 6) : 10} dur={6} dim={1} grade={1.4}
-          ramp={[{at: 0, rate: 0.7}, {at: 2.6, rate: 0.7}, {at: 3.4, rate: 0.2}, {at: 6, rate: 0.2}]} push={[1.02, 1.22]} drift={[0, -40]} />
-        <Flare at={2.9} strength={0.8} />
-      </At>
-      <At from={6} dur={6}>
-        <Dark c={ref(P, 'r4-bedwars_solo', P.last, 'bedwars_solo')} start={st(P, 'r4-bedwars_solo', 6, 8)} dur={6} dim={1} grade={1.4}
-          ramp={[{at: 0, rate: 0.55}, {at: 6, rate: 0.55}]} push={[1.0, 1.26]} drift={[30, -30]} />
-        <Flare at={0.1} strength={0.6} />
-      </At>
-      <At from={12} dur={6}>
-        <Dark c={ref(P, 'r4-duels_classic', P.last, 'duels_classic')} start={st(P, 'r4-duels_classic', 6, 14)} dur={6} dim={1} grade={1.4}
-          ramp={[{at: 0, rate: 0.8}, {at: 2.2, rate: 0.8}, {at: 3.0, rate: 0.22}, {at: 5.2, rate: 0.22}, {at: 6, rate: 0.6}]} push={[1.04, 1.2]} drift={[-30, 20]} />
-        <Flare at={2.4} strength={0.7} />
-      </At>
-    </AbsoluteFill>
-  );
-};
+const Hero: React.FC<{P: P}> = ({P}) => (
+  <AbsoluteFill style={{background: '#000'}}>
+    <At from={0} dur={6}>
+      <Pick P={P} k="sunsetSkel" dur={6} dim={1} grade={1.2} ramp={[{at: 0, rate: 0.5}, {at: 6, rate: 0.35}]} push={[1.08, 1.3]} drift={[0, -40]} />
+      <Flare at={2.9} strength={0.8} />
+    </At>
+    <At from={6} dur={6}>
+      <Pick P={P} k="forest2" dur={6} off={-0.2} dim={1} grade={1.3} ramp={[{at: 0, rate: 0.35}, {at: 6, rate: 0.35}]} push={[1.08, 1.3]} drift={[30, -30]} />
+      <Flare at={0.1} strength={0.6} />
+    </At>
+    <At from={12} dur={6}>
+      <Pick P={P} k="vindicator" dur={6} dim={1} grade={1.4}
+        ramp={[{at: 0, rate: 0.45}, {at: 0.9, rate: 0.45}, {at: 1.3, rate: 0.15}, {at: 5.2, rate: 0.15}, {at: 6, rate: 0.4}]} push={[1.08, 1.24]} drift={[-30, 20]} />
+      <Flare at={1.3} strength={0.7} />
+    </At>
+  </AbsoluteFill>
+);
 
 // ---------------- 54 - 57 s: pull quotes (in-universe) ----------------
 const Stars: React.FC = () => (
@@ -227,7 +259,7 @@ const Quotes: React.FC<{P: P}> = ({P}) => {
   const games = P.tags[P.last].games;
   return (
     <AbsoluteFill style={{background: '#000'}}>
-      <Dark c={ref(P, 'r4-duels_sword', P.last, 'duels_sword')} start={st(P, 'r4-duels_sword', 3, 20)} dur={3} blur={14} dim={0.3} />
+      <Pick P={P} k="forest2" dur={3} blur={12} dim={0.32} ramp={[{at: 0, rate: 0.4}, {at: 3, rate: 0.4}]} />
       <At from={0} dur={1.5}><Quote text="It was right behind me." who="The zombie" /></At>
       <At from={1.5} dur={1.5}><Quote text={`Hasn't touched me in ${games} games.`} who="A skeleton" /></At>
     </AbsoluteFill>
@@ -296,14 +328,13 @@ const Clock: React.FC<{ticks: number}> = ({ticks}) => (
     <circle r={6} fill="#e9e4d8" />
   </svg>
 );
+const MONTAGE: [string, number][] = [
+  ['zombie', 0.4], ['skeleton', 0.5], ['forest', 0.5], ['vindicator', 0.3], ['sunsetSkel', 0.8], ['diamond', 1.1],
+  ['burning', 0.4], ['pair', 1.1], ['combo', 0.2], ['forest2', 0.2], ['zombie', 0.6], ['skeleton', 1.8],
+  ['vindicator', 0.45], ['diamond', 1.3], ['pair', 1.3], ['forest', 0.65], ['sunset', 0.6], ['burning', 1.4], ['zombie', 0.5], ['vindicator', 0.5],
+];
 const Montage: React.FC<{P: P}> = ({P}) => {
   const t = useT();
-  const s = P.shots || {};
-  const play = Object.keys(s).filter((k) => s[k].kind === 'play' && !k.startsWith('hero4k'));
-  const doll = Object.keys(s).filter((k) => s[k].kind === 'dolly' && s[k].w === 1920);
-  const pool: string[] = [];
-  for (let i = 0; i < Math.max(play.length, doll.length); i++) { if (play[i]) pool.push(play[i]); if (doll[i] && i % 2 === 0) pool.push(doll[i]); }
-  const old = Object.keys(P.clips);
   const cuts: {t0: number; step: number}[] = [];
   for (let i = 0; i < 4; i++) cuts.push({t0: i * 0.75, step: 0.75});
   for (let i = 0; i < 8; i++) cuts.push({t0: 3 + i * 0.375, step: 0.375});
@@ -314,19 +345,10 @@ const Montage: React.FC<{P: P}> = ({P}) => {
   return (
     <AbsoluteFill style={{background: '#000'}}>
       {cuts.map((c, j) => {
-        let cref: ClipRef; let start: number;
-        if (pool.length) {
-          const name = pool[(j * 3) % pool.length];
-          const m = s[name];
-          cref = shotRef(P, name) as ClipRef;
-          const base = m.hits && m.hits.length ? Math.max(0, m.hits[(j >> 1) % m.hits.length] - 0.5) : 1 + ((j * 1.9) % Math.max(1, m.dur - 3));
-          start = Math.max(0, Math.min(base, m.dur - c.step - 0.3));
-        } else {
-          cref = P.clips[old[j % old.length]]; start = 8 + (j % 5) * 3;
-        }
+        const [k, off] = MONTAGE[j % MONTAGE.length];
         return (
           <At key={j} from={c.t0} dur={c.step + 0.02}>
-            <Dark c={cref} start={start} dur={c.step + 0.02} dim={1} push={[1.04 + (j % 3) * 0.02, 1.16]} drift={[(j % 2 ? 1 : -1) * 20, 0]} grade={1.4} />
+            <Pick P={P} k={k} off={off} dur={c.step + 0.02} dim={1} push={[1.1 + (j % 3) * 0.03, 1.2]} drift={[(j % 2 ? 1 : -1) * 20, 0]} grade={1.4} />
           </At>
         );
       })}
@@ -351,13 +373,13 @@ const Finale: React.FC<{P: P}> = ({P}) => {
           <AbsoluteFill style={{background: 'radial-gradient(ellipse at 50% 50%, rgba(150,35,25,0.6), rgba(0,0,0,0) 62%)', opacity: ease(t / 0.6)}} />
           <Flash at={0} strength={1} dur={0.8} />
           <Flash at={1.5} strength={1} dur={0.8} />
-          <div style={{position: 'absolute', left: 0, right: 0, top: 46}}><AbsoluteFill style={{alignItems: 'center'}}><Hit at={0} size={296} tint="red" flare={1.6} y="30%">{`${w} wins.`}</Hit></AbsoluteFill></div>
+          <div style={{position: 'absolute', left: 0, right: 0, top: 46}}><AbsoluteFill style={{alignItems: 'center'}}><Hit at={0} size={296} tint="red" flare={1.6} y="30%"><Num text={`${w} wins.`} tint="red" /></Hit></AbsoluteFill></div>
           <div style={{position: 'absolute', left: 0, right: 0, top: 350}}><AbsoluteFill style={{alignItems: 'center'}}><Hit at={1.5} size={408} flare={1.8} y="62%">Ever.</Hit></AbsoluteFill></div>
         </>
       )}
       {t >= 3 && (
         <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center', gap: 18, transform: `scale(${lerp(1.0, 1.06, ease((t - 3) / 3))})`}}>
-          <Hit at={3.2} size={200} tint="gold" flare={0.5}>{`${w} wins. Ever.`}</Hit>
+          <Hit at={3.2} size={200} tint="gold" flare={0.5}><Num text={`${w} wins. Ever.`} tint="gold" /></Hit>
           <Small at={4.4} size={26} serif={false} track={0.5} color={K.muted}>VPT Arena</Small>
         </AbsoluteFill>
       )}
@@ -368,19 +390,26 @@ const Finale: React.FC<{P: P}> = ({P}) => {
 // ---------------- 81 - 90 s: end card ----------------
 const End: React.FC<{P: P}> = ({P}) => {
   const t = useT();
-  const img = P.liveFrame || P.liveShot;
   const fade = 1 - ease((t - 7.4) / 1.6);
+  const live = pick(P, 'zombie');
+  const blink = Math.floor(t * 1.6) % 2 === 0 ? 1 : 0.35;
   return (
     <AbsoluteFill style={{background: '#000', opacity: fade}}>
-      {hasShot(P, 'dolly4k-duels_sword') && <Shot c={shotRef(P, 'dolly4k-duels_sword') as ClipRef} start={0.4} dur={9} blur={[10, 20]} dim={0.4} push={[1.04, 1.14]} drift={[0, -50]} fadeIn={1.5} filter={HEAVY} grade={1.3} />}
-      <div style={{position: 'absolute', left: 110, top: 150, width: 800}}>
+      <Pick P={P} k="sunset" off={1.2} dur={9} blur={14} dim={0.35} fadeIn={1.5} ramp={[{at: 0, rate: 0.2}, {at: 9, rate: 0.2}]} push={[1.1, 1.2]} drift={[0, -50]} grade={1.1} />
+      <div style={{position: 'absolute', left: 110, top: 165, width: 780}}>
         <Hit at={0.3} size={200} flare={1} y="30%" style={{textAlign: 'left'}}>VPT Arena</Hit>
         <Small at={2.4} size={64} track={0.04} style={{textAlign: 'left', marginTop: 26, lineHeight: 1.05}} italic>Watch it learn live.</Small>
-        <Small at={4.0} size={28} serif={false} track={0.22} color={K.amber} style={{textAlign: 'left', marginTop: 28}}>vpt-arena.vercel.app</Small>
+        <Small at={4.0} size={30} serif={false} track={0.22} color={K.amber} style={{textAlign: 'left', marginTop: 28}}>vpt-arena.vercel.app</Small>
       </div>
-      {img && t > 4.8 && (
-        <div style={{position: 'absolute', left: 960, top: 150, width: 880, height: 495, opacity: ease((t - 4.8) / 1.2), boxShadow: '0 40px 100px rgba(0,0,0,0.85)', border: '1px solid rgba(233,228,216,0.35)', overflow: 'hidden', transform: `scale(${lerp(1, 1.04, ease((t - 4.8) / 4))})`}}>
-          <Img src={staticFile(img)} style={{width: '100%', height: '100%', objectFit: 'cover', filter: 'contrast(1.1) saturate(0.95)'}} />
+      {t > 3.2 && (
+        <div style={{position: 'absolute', left: 980, top: 165, width: 840, height: 472, opacity: ease((t - 3.2) / 1.0), boxShadow: '0 40px 100px rgba(0,0,0,0.85)', border: '1px solid rgba(233,228,216,0.35)', overflow: 'hidden', transform: `scale(${lerp(0.97, 1.02, ease((t - 3.2) / 5))})`}}>
+          <At from={3.2} dur={6}>
+            <Shot c={live.c} start={live.at - 1.0} dur={6} ramp={[{at: 0, rate: 0.5}, {at: 6, rate: 0.5}]} push={[1.1, 1.14]} filter="contrast(1.12) saturate(1.05)" grade={0.6} />
+          </At>
+          <div style={{position: 'absolute', left: 22, top: 18, display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', background: 'rgba(0,0,0,0.6)', borderRadius: 4}}>
+            <div style={{width: 16, height: 16, borderRadius: 8, background: '#ff3b30', opacity: blink, boxShadow: '0 0 12px #ff3b30'}} />
+            <div style={{fontFamily: K.mono, fontSize: 24, letterSpacing: '0.25em', color: '#fff'}}>LIVE</div>
+          </div>
         </div>
       )}
     </AbsoluteFill>
@@ -402,13 +431,13 @@ export const TheatMain: React.FC<any> = (P) => {
       <div style={{position: 'absolute', left: 0, top, width: W, height: H, overflow: 'hidden', background: '#000'}}>
         <div style={{position: 'absolute', inset: 0, transform: `translate(${dx}px, ${dy}px) rotate(${rot}deg) scale(${amp > 0.5 ? 1.04 : 1})`}}>
           <At from={0} dur={12}><Open P={P} /></At>
-          <At from={12} dur={8.25}><Cards P={P} /></At>
+          <At from={12} dur={12}><Cards P={P} /></At>
           <At from={24} dur={3}><Zero P={P} /></At>
           <At from={27} dur={9}><Fought P={P} /></At>
           <At from={36} dur={18}><Hero P={P} /></At>
           <At from={54} dur={3}><Quotes P={P} /></At>
           <At from={57} dur={5.25}><Boast P={P} /></At>
-          <At from={64.5} dur={1.5}><BoastTail /></At>
+          <At from={62.7} dur={3.3}><BoastTail /></At>
           <At from={66} dur={7.5}><Montage P={P} /></At>
           <At from={75} dur={6}><Finale P={P} /></At>
           <At from={81} dur={9}><End P={P} /></At>
@@ -422,6 +451,6 @@ export const TheatMain: React.FC<any> = (P) => {
 // "It still lost all of them." on black, after the silence (64.5 - 66 s)
 const BoastTail: React.FC = () => (
   <AbsoluteFill style={{background: '#000'}}>
-    <Center><Small at={0.15} size={66} track={0.14}>It still lost all of them.</Small></Center>
+    <Center><Small at={0.3} size={84} track={0.12}>It still lost all of them.</Small></Center>
   </AbsoluteFill>
 );
