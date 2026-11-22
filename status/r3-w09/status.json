@@ -1,1 +1,1 @@
-{"job": "r3-w09", "state": "running", "round": 3, "modes": ["uhc", "survival_games"], "started": 1795321726.1864605, "iter": 46, "env_steps": 3680, "fps": 15.7, "per_mode": {}, "minutes_left": 140.8, "updated": 1795322278.2481105}
+{"job": "r3-w09", "state": "running", "round": 3, "modes": ["uhc", "survival_games"], "started": 1795321726.1864605, "iter": 64, "env_steps": 5120, "fps": 15.4, "per_mode": {}, "minutes_left": 137.7, "updated": 1795322461.9553602}
