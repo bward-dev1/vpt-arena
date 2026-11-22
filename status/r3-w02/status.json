@@ -1,1 +1,1 @@
-{"job": "r3-w02", "state": "running", "round": 3, "modes": ["duels_uhc", "duels_nodebuff"], "started": 1795323844.9637322, "iter": 9, "env_steps": 720, "fps": 17.3, "per_mode": {}, "minutes_left": 147.0, "updated": 1795324023.7952447}
+{"job": "r3-w02", "state": "running", "round": 3, "modes": ["duels_uhc", "duels_nodebuff"], "started": 1795323844.9637322, "iter": 29, "env_steps": 2320, "fps": 19.3, "per_mode": {}, "minutes_left": 143.9, "updated": 1795324208.929104}
