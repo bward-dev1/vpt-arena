@@ -1,1 +1,1 @@
-{"job": "r4-w05", "state": "running", "round": 4, "modes": ["build_uhc", "the_bridge"], "started": 1795333306.949419, "iter": 38, "env_steps": 3040, "fps": 17.0, "per_mode": {}, "minutes_left": 140.8, "updated": 1795333856.6952617}
+{"job": "r4-w05", "state": "running", "round": 4, "modes": ["build_uhc", "the_bridge"], "started": 1795333306.949419, "iter": 54, "env_steps": 4320, "fps": 16.3, "per_mode": {}, "minutes_left": 137.7, "updated": 1795334043.0903647}
