@@ -1,0 +1,1 @@
+{"kind": "rl", "arch": "small", "started": 1795308492.5376492, "args": {"modes": ["tnt_run", "parkour_duel", "survival", "duels_sword"], "round": 0, "T": 40, "lr": 3e-05, "kl_coef": 0.1, "minutes": 150.0, "platform": "github-actions", "difficulty": 0.3}}
