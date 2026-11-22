@@ -81,8 +81,8 @@ export const Grade: React.FC<{strength?: number}> = ({strength = 1}) => (
 );
 
 // A graded shot with a slow push-in and drift. `blur` > 0 gives a soft backdrop for title cards (depth of field).
-export const Shot: React.FC<{c: ClipRef; start: number; dur: number; ramp?: Ramp; push?: [number, number]; drift?: [number, number]; blur?: number | [number, number]; dim?: number; fadeIn?: number; style?: React.CSSProperties}> = ({
-  c, start, dur, ramp, push = [1.04, 1.14], drift = [0, 0], blur = 0, dim = 1, fadeIn = 0, style,
+export const Shot: React.FC<{c: ClipRef; start: number; dur: number; ramp?: Ramp; push?: [number, number]; drift?: [number, number]; blur?: number | [number, number]; dim?: number; fadeIn?: number; filter?: string; grade?: number; style?: React.CSSProperties}> = ({
+  c, start, dur, ramp, push = [1.04, 1.14], drift = [0, 0], blur = 0, dim = 1, fadeIn = 0, filter, grade = 1, style,
 }) => {
   const t = useT();
   const p = ease(t / dur);
@@ -90,8 +90,8 @@ export const Shot: React.FC<{c: ClipRef; start: number; dur: number; ramp?: Ramp
   return (
     <AbsoluteFill style={{overflow: 'hidden', background: '#000', opacity: fadeIn ? ease(t / fadeIn) : 1, ...style}}>
       <AbsoluteFill style={{transform: `translateX(${lerp(drift[0], drift[1], p)}px) scale(${lerp(push[0], push[1], p)})`, filter: b ? `blur(${b}px)` : undefined}}>
-        <Footage c={c} start={start} dur={dur} ramp={ramp} />
-        <Grade />
+        <Footage c={c} start={start} dur={dur} ramp={ramp} filter={filter} />
+        <Grade strength={grade} />
       </AbsoluteFill>
       {dim < 1 && <AbsoluteFill style={{background: '#000', opacity: 1 - dim}} />}
     </AbsoluteFill>

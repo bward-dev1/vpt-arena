@@ -134,7 +134,7 @@ for p, inst in ((48, cello), (36, cbass), (55, pad), (60, pad), (64, pad), (72, 
 timp.note(116, 2, 48, hv(100))
 piano.cc(116, 64, 127); piano.note(116, 9, 36, hv(80)); piano.note(116, 9, 48, hv(74)); piano.note(116.5, 8, 64, hv(60))
 
-PLAN = {"_": {"reverb_s": 3.2, "predelay_ms": 40, "duck_key": "Drums", "master_shelf_high": (8000, 5.0), "master_eq": [(400, -2.0, 0.9), (4500, 2.0, 0.8)]},
+PLAN = {"_": {"reverb_s": 3.2, "predelay_ms": 40, "duck_key": "Drums", "master_shelf_high": (7000, 8.5), "master_eq": [(400, -2.0, 0.9), (3500, 3.0, 0.8), (5500, 3.5, 0.8)]},
         "Contrabass": {"gain_db": 1, "duck_db": 0, "send": 0.15, "lpf": 2500},
         "Timpani": {"hpf": 35, "lpf": 6000, "gain_db": 0, "comp": (-20, 2, 15, 200), "send": 0.3, "duck_db": 0},
         "Low": {"gain_db": -1, "duck_db": 0, "send": 0.2, "shelf_low": (90, 3.0), "eq": [(300, -3, 1.0)]},
@@ -148,4 +148,4 @@ PLAN = {"_": {"reverb_s": 3.2, "predelay_ms": 40, "duck_key": "Drums", "master_s
 if __name__ == "__main__":
     for level, msg in lint(song):
         print(level, msg)
-    produce(song, sys.argv[1], PLAN, target_lufs=-16, length_s=96.0, fade_out_s=2.2)
+    produce(song, sys.argv[1], PLAN, target_lufs=-15, length_s=96.0, fade_out_s=2.2)

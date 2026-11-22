@@ -1,9 +1,10 @@
 import React from 'react';
 import {AbsoluteFill, Img, staticFile, useVideoConfig} from 'remotion';
 import {At, ClipRef, Footage, Furniture, Grade, H, K, Line, Shot, W, clamp, ease, lerp, minus, useT} from './base';
+import {clipFor, hasShot, shotName, shotRef, startFor} from './footage';
 
 type P = any;
-const clipOf = (P: P, tag: string, mode: string): ClipRef => P.clips[`${tag}/${mode}`] || P.clips[`baseline/${mode}`] || Object.values(P.clips)[0];
+const clipOf = clipFor;
 const nm = (P: P, m: string) => P.names[m] || m.replace(/_/g, ' ');
 const tagLabel = (t: string) => t.replace('-', ' ').toUpperCase();
 
@@ -21,23 +22,25 @@ const Divider: React.FC = () => (
 const Versus: React.FC<{P: P; a: string; b: string; mode: string; start: number; dur: number; ramp?: any; labelA?: string; labelB?: string}> = ({P, a, b, mode, start, dur, ramp, labelA, labelB}) => {
   const ra = P.tags[a].per[mode].return;
   const rb = P.tags[b].per[mode].return;
+  const sa = hasShot(P, shotName(P, a, mode)) ? startFor(P, shotName(P, a, mode), dur) : start;
+  const sb = hasShot(P, shotName(P, b, mode)) ? startFor(P, shotName(P, b, mode), dur) : start;
   return (
     <AbsoluteFill>
       <div style={{position: 'absolute', left: 0, top: 0, width: W / 2, height: H, overflow: 'hidden'}}>
-        <Shot c={clipOf(P, a, mode)} start={start} dur={dur} ramp={ramp} push={[1.04, 1.12]} drift={[0, -20]} />
+        <Shot c={clipOf(P, a, mode)} start={sa} dur={dur} ramp={ramp} push={[1.04, 1.12]} drift={[0, -20]} />
       </div>
       <div style={{position: 'absolute', left: W / 2, top: 0, width: W / 2, height: H, overflow: 'hidden'}}>
-        <Shot c={clipOf(P, b, mode)} start={start} dur={dur} ramp={ramp} push={[1.04, 1.12]} drift={[0, 20]} />
+        <Shot c={clipOf(P, b, mode)} start={sb} dur={dur} ramp={ramp} push={[1.04, 1.12]} drift={[0, 20]} />
       </div>
       <div style={{position: 'absolute', left: 0, right: 0, top: 0, height: 170, background: 'linear-gradient(180deg, rgba(0,0,0,0.55), rgba(0,0,0,0))'}} />
       <Divider />
       <div style={{position: 'absolute', left: 70, top: 56}}>
-        <Line at={0.6} mono size={22} track={0.18} align="left">{labelA || tagLabel(a)}</Line>
-        <Line at={0.9} mono size={18} track={0.12} color={K.muted} align="left">{nm(P, mode)} / return {minus(ra, 1)}</Line>
+        <Line at={0.6} mono size={26} track={0.18} align="left">{labelA || tagLabel(a)}</Line>
+        <Line at={0.9} mono size={20} track={0.12} color={K.text} align="left">{nm(P, mode)} / return {minus(ra, 1)}</Line>
       </div>
       <div style={{position: 'absolute', right: 70, top: 56, textAlign: 'right'}}>
-        <Line at={0.8} mono size={22} track={0.18} align="left" color={K.amber}>{labelB || tagLabel(b)}</Line>
-        <Line at={1.1} mono size={18} track={0.12} color={K.muted} align="left">{nm(P, mode)} / return {minus(rb, 1)}</Line>
+        <Line at={0.8} mono size={26} track={0.18} align="left" color={K.amber}>{labelB || tagLabel(b)}</Line>
+        <Line at={1.1} mono size={20} track={0.12} color={K.text} align="left">{nm(P, mode)} / return {minus(rb, 1)}</Line>
       </div>
     </AbsoluteFill>
   );
@@ -88,7 +91,7 @@ const ColdOpen: React.FC<{P: P}> = ({P}) => {
         {allZero ? 'It has never won a game.' : `It has won ${a.wins} of ${a.games} games.`}
       </Line>
       <At from={4.0} dur={dur}>
-        <Shot c={clipOf(P, 'baseline', 'duels_sword')} start={6} dur={dur} fadeIn={1.4} push={[1.02, 1.16]} drift={[10, -30]}
+        <Shot c={shotRef(P, 'hero4k-r0-duels_sword') || clipOf(P, 'baseline', 'duels_sword')} start={shotRef(P, 'hero4k-r0-duels_sword') ? 0.4 : 6} dur={dur} fadeIn={1.4} push={[1.02, 1.16]} drift={[10, -30]}
           ramp={[{at: 0, rate: 1}, {at: 2.6, rate: 1}, {at: 3.9, rate: 0.3}, {at: 6.1, rate: 0.3}, {at: 7.5, rate: 1}]} />
         <Caption at={1.6}>{`baseline / ${nm(P, 'duels_sword')} / ${P.tags.baseline.per.duels_sword ? Math.round(P.tags.baseline.per.duels_sword.win_rate * P.tags.baseline.per.duels_sword.episodes) : 0} of ${P.tags.baseline.per.duels_sword?.episodes ?? 3} wins`}</Caption>
       </At>
@@ -102,16 +105,16 @@ const Premise: React.FC<{P: P}> = ({P}) => {
   return (
     <AbsoluteFill style={{background: '#000'}}>
       <At from={0} dur={6.4}>
-        <Shot c={clipOf(P, 'baseline', 'the_bridge')} start={9} dur={6.4} blur={[16, 7]} dim={0.55} push={[1.08, 1.16]} drift={[0, -40]} />
+        <Shot c={shotRef(P, 'dolly-duels_sword') || clipOf(P, 'baseline', 'the_bridge')} start={hasShot(P, 'dolly-duels_sword') ? 0.5 : 9} dur={6.4} blur={[16, 7]} dim={0.55} push={[1.08, 1.16]} drift={[0, -40]} />
         <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center', gap: 18}}>
           <Line at={0.8} size={150} track={0.02}>One network.</Line>
           <Line at={3.0} size={46} italic track={0.04} color={K.amber}>{`${n} ways to fight.`}</Line>
         </AbsoluteFill>
       </At>
       <At from={6.4} dur={6.4}>
-        <Shot c={clipOf(P, 'baseline', 'bedwars_squads')} start={5} dur={6.4} blur={10} dim={0.4} push={[1.12, 1.2]} drift={[40, -60]} />
+        <Shot c={shotRef(P, 'dolly-skywars_solo') || clipOf(P, 'baseline', 'bedwars_squads')} start={hasShot(P, 'dolly-skywars_solo') ? 1 : 5} dur={6.4} blur={10} dim={0.4} push={[1.12, 1.2]} drift={[40, -60]} />
         <div style={{position: 'absolute', left: 170, top: 120, width: 1000, height: 562, overflow: 'hidden', boxShadow: '0 30px 80px rgba(0,0,0,0.7)'}}>
-          <Shot c={clipOf(P, 'baseline', 'skywars_solo')} start={4} dur={6.4} push={[1.0, 1.1]} drift={[30, -30]} />
+          <Shot c={clipOf(P, P.last, 'skywars_solo')} start={startFor(P, 'r4-skywars_solo', 6.4, 4)} dur={6.4} push={[1.0, 1.1]} drift={[30, -30]} />
         </div>
         <div style={{position: 'absolute', right: 110, bottom: 130, width: 560}}>
           <Line at={1.0} size={52} align="left" track={0.02}>Built on OpenAI's VPT.</Line>
@@ -119,7 +122,7 @@ const Premise: React.FC<{P: P}> = ({P}) => {
         </div>
       </At>
       <At from={12.8} dur={6.4}>
-        <Shot c={clipOf(P, 'baseline', 'kitpvp')} start={8} dur={6.4} push={[1.02, 1.14]} drift={[-10, 20]} ramp={[{at: 0, rate: 1}, {at: 3.0, rate: 1}, {at: 4.2, rate: 0.35}, {at: 5.6, rate: 0.6}]} />
+        <Shot c={shotRef(P, 'r4-the_bridge') || clipOf(P, 'baseline', 'kitpvp')} start={startFor(P, 'r4-the_bridge', 6.4, 8)} dur={6.4} push={[1.02, 1.14]} drift={[-10, 20]} ramp={[{at: 0, rate: 1}, {at: 3.0, rate: 1}, {at: 4.2, rate: 0.35}, {at: 5.6, rate: 0.6}]} />
         <div style={{position: 'absolute', left: 90, bottom: 110}}>
           <Line at={0.8} size={50} align="left">It sees 128 x 128 pixels.</Line>
           <Line at={3.0} size={50} align="left" italic color={K.amber} style={{marginTop: 8}}>It presses keys twenty times a second.</Line>
@@ -132,7 +135,7 @@ const Premise: React.FC<{P: P}> = ({P}) => {
 // ---------------- 3. Learning (32 - 60.8 s) ----------------
 const Learning: React.FC<{P: P}> = ({P}) => {
   const t = useT();
-  const [mA, mB] = P.improved;
+  const [mA, mB] = P.pairs && P.pairs.length >= 2 ? P.pairs : P.improved;
   const first = P.first;
   const last = P.last;
   const meanF = P.tags[first].mean;
@@ -140,7 +143,7 @@ const Learning: React.FC<{P: P}> = ({P}) => {
   return (
     <AbsoluteFill style={{background: '#000'}}>
       <At from={0} dur={4.8}>
-        <Shot c={clipOf(P, first, mA)} start={10} dur={4.8} blur={[18, 6]} dim={0.5} push={[1.1, 1.16]} />
+        <Shot c={shotRef(P, 'dolly-spleef') || clipOf(P, first, mA)} start={hasShot(P, 'dolly-spleef') ? 1 : 10} dur={4.8} blur={[18, 6]} dim={0.5} push={[1.1, 1.16]} />
         <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center', gap: 20}}>
           <Line at={0.4} size={120} track={0.03}>Round by round.</Line>
           <Line at={1.6} mono size={20} track={0.2} color={K.muted}>12 cloud workers a round / merged by federated averaging</Line>
@@ -159,7 +162,7 @@ const Learning: React.FC<{P: P}> = ({P}) => {
         </div>
       )}
       <At from={20.8} dur={8}>
-        <Shot c={clipOf(P, last, mB)} start={20} dur={8} blur={18} dim={0.3} push={[1.1, 1.16]} />
+        <Shot c={clipOf(P, last, mB)} start={startFor(P, shotName(P, last, mB), 8, 20)} dur={8} blur={18} dim={0.3} push={[1.1, 1.16]} />
         <AbsoluteFill style={{alignItems: 'center', justifyContent: 'flex-start', paddingTop: 80}}>
           <Line at={0.4} size={84} track={0.03}>{`${minus(meanF)}  →  ${minus(meanL)}`}</Line>
           <Line at={1.4} mono size={19} track={0.2} color={K.muted} style={{marginTop: 8}}>{`mean return over ${Object.keys(P.tags[last].per).length} modes, ${tagLabel(first)} to ${tagLabel(last)}`}</Line>
@@ -198,7 +201,7 @@ const Rivals: React.FC<{P: P}> = ({P}) => {
         </At>
       )}
       <At from={12.8} dur={3.2}>
-        <Shot c={clipOf(P, last, 'duels_sword')} start={24} dur={3.2} blur={20} dim={0.25} push={[1.1, 1.14]} />
+        <Shot c={clipOf(P, last, 'duels_sword')} start={startFor(P, shotName(P, last, 'duels_sword'), 3.2, 24)} dur={3.2} blur={20} dim={0.25} push={[1.1, 1.14]} />
         <div style={{position: 'absolute', left: 340, top: 150, width: 1240}}>
           {rows.map((r, i) => {
             const v = P.tags[r.k].mean;
@@ -235,7 +238,12 @@ const Honest: React.FC<{P: P}> = ({P}) => {
       )}
       {t >= 6.4 && (
         <AbsoluteFill style={{opacity: fadeOut}}>
-          {img && (
+          {hasShot(P, 'dolly4k-duels_sword') && (
+            <At from={0} dur={12.8}>
+              <Shot c={shotRef(P, 'dolly4k-duels_sword') as ClipRef} start={0.4} dur={12.8} blur={[10, 22]} dim={0.45} push={[1.04, 1.14]} drift={[0, -50]} fadeIn={1.5} />
+            </At>
+          )}
+          {img && !hasShot(P, 'dolly4k-duels_sword') && (
             <AbsoluteFill style={{overflow: 'hidden'}}>
               <AbsoluteFill style={{transform: `scale(${lerp(1.15, 1.3, ease((t - 6.4) / 12.8))})`, filter: 'blur(26px)', opacity: ease((t - 6.4) / 2) * 0.5}}>
                 <Img src={staticFile(img)} style={{width: '100%', height: '100%', objectFit: 'cover'}} />

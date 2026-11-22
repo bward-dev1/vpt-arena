@@ -57,6 +57,7 @@ scr = scratch[-1] if scratch and scratch[-1] in T else None
 # the two modes that improved most from the first round to the latest
 delta = sorted(((T[last]["per"][m]["return"] - T[first]["per"][m]["return"], m) for m in T[last]["per"] if m in T[first]["per"]), reverse=True)
 improved = [m for _, m in delta[:2]]
+improved_all = [m for _, m in delta]
 duels = [m for m in T[last]["per"] if m.startswith("duels_")]
 beat = sum(1 for m in duels if rival and T[last]["per"][m]["return"] > T[rival]["per"][m]["return"])
 
@@ -80,6 +81,34 @@ for t, m in sorted(want):
         clips[f"{t}/{m}"] = {"clip": c.replace(PUB + "/", ""), "clip60": c60.replace(PUB + "/", "") if os.path.exists(c60) else None, "dur": probe_dur(c)}
 print("clips:", len(clips), "of", len(want))
 
+# ---- HD footage (release `footage`): per-episode 60 fps mp4 + step log; highlights are cut from the log (damage dealt / taken, ending) ----
+os.makedirs(f"{PUB}/footage", exist_ok=True)
+run("gh", "release", "download", "footage", "-R", REPO, "-p", "*-60.mp4", "-p", "*.json", "-D", f"{PUB}/footage", "--clobber", check=False)
+shots = {}
+for jf in sorted(os.listdir(f"{PUB}/footage")):
+    if not jf.endswith(".json"):
+        continue
+    name = jf[:-5]
+    mp = f"{PUB}/footage/{name}-60.mp4"
+    if not os.path.exists(mp):
+        continue
+    meta = json.load(open(f"{PUB}/footage/{jf}"))
+    log, task = meta.get("log", []), meta["task"]
+    hits, hurt, prev_d, prev_hp = [], [], 0.0, None
+    for i, (r, dd, hp, done, won) in enumerate(log):
+        if dd > prev_d + 1e-6:
+            hits.append(round(i / 20, 2))
+        prev_d = dd
+        if prev_hp is not None and hp < prev_hp - 0.4:
+            hurt.append(round(i / 20, 2))
+        prev_hp = hp
+    ended = bool(log and log[-1][3])
+    shots[name] = {"file": f"footage/{name}-60.mp4", "dur": probe_dur(mp), "w": task["size"][0], "h": task["size"][1], "kind": task["kind"], "mode": task["mode"],
+                   "tag": task.get("tag"), "hits": hits[:40], "hurt": hurt[:40], "endT": round(len(log) / 20, 2) if ended else None,
+                   "endHp": log[-1][2] if log else None, "won": bool(log and log[-1][4])}
+print("footage shots:", len(shots), sorted(shots))
+# (pairs of first-round / latest-round footage are chosen below, once all shots are known)
+
 data = requests.get(f"{SITE}/data.json", timeout=60).json()
 names = {c["mode"]: c["name"] for c in data.get("overview", {}).get("clips", []) if isinstance(c, dict)}
 
@@ -98,9 +127,15 @@ subprocess.run(["google-chrome", "--headless=new", "--no-sandbox", "--disable-gp
 shot = "shots/live.png" if os.path.exists(out) and os.path.getsize(out) > 5000 else None
 
 # film grain: 8 frames of temporal noise, cycled by the render (ffmpeg only)
-subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=gray:s=960x540:r=1", "-vf", "noise=alls=45:allf=t+u,format=gray", "-frames:v", "8", f"{PUB}/grain/g%d.png"], check=True)
+subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=gray:s=1920x1080:r=1", "-vf", "noise=alls=45:allf=t+u,format=gray", "-frames:v", "8", f"{PUB}/grain/g%d.png"], check=True)
 
-props = {"tags": T, "rounds": rounds, "first": first, "last": last, "rival": rival, "scratch": scr, "improved": improved, "duelsBeaten": beat,
+pairs = [m for m in improved_all if f"r0-{m}" in shots and f"r4-{m}" in shots]
+steps_total = 0
+for t in rounds:
+    sm = gh_json(t, "summary.json")
+    if sm:
+        steps_total += sum(int(j.get("env_steps", 0)) for j in sm.get("jobs", []))
+props = {"shots": shots, "pairs": pairs, "steps": steps_total, "tags": T, "rounds": rounds, "first": first, "last": last, "rival": rival, "scratch": scr, "improved": improved, "duelsBeaten": beat,
          "duelsTotal": len(duels), "clips": clips, "names": names, "liveFrame": live, "liveShot": shot}
 json.dump(props, open("trailer/props-cine.json", "w"), indent=1)
 print(json.dumps({k: (v if k != "tags" else {t: {"mean": round(x["mean"], 2), "wins": x["wins"], "games": x["games"]} for t, x in v.items()}) for k, v in props.items() if k not in ("clips", "names")}))

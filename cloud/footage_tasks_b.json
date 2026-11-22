@@ -1,11 +1,152 @@
 [
- {"name": "r0-duels_sword", "kind": "play", "tag": "round-0", "mode": "duels_sword", "size": [1920, 1080], "steps": 800, "seed": 11},
- {"name": "r0-duels_sumo", "kind": "play", "tag": "round-0", "mode": "duels_sumo", "size": [1920, 1080], "steps": 600, "seed": 12},
- {"name": "r0-spleef", "kind": "play", "tag": "round-0", "mode": "spleef", "size": [1920, 1080], "steps": 600, "seed": 13},
- {"name": "r0-duels_classic", "kind": "play", "tag": "round-0", "mode": "duels_classic", "size": [1920, 1080], "steps": 500, "seed": 17},
- {"name": "openai-duels_sword", "kind": "play", "tag": "openai-rl-2x", "mode": "duels_sword", "size": [1920, 1080], "steps": 500, "seed": 11},
- {"name": "scratch-duels_classic", "kind": "play", "tag": "scratch-1", "mode": "duels_classic", "size": [1920, 1080], "steps": 500, "seed": 17},
- {"name": "dolly-spleef", "kind": "dolly", "mode": "spleef", "size": [1920, 1080], "steps": 200, "seed": 24, "start_deg": 120, "sweep_deg": 100, "radius": [22, 14], "height": [9, 4]},
- {"name": "hero4k-r0-duels_sword", "kind": "play", "tag": "round-0", "mode": "duels_sword", "size": [3840, 2160], "steps": 220, "seed": 31},
- {"name": "dolly4k-duels_sword", "kind": "dolly", "mode": "duels_sword", "size": [3840, 2160], "steps": 220, "seed": 25, "start_deg": 30, "sweep_deg": 90, "radius": [22, 14], "height": [8, 3]}
+ {
+  "name": "r0-duels_sword",
+  "kind": "play",
+  "tag": "round-0",
+  "mode": "duels_sword",
+  "size": [
+   1920,
+   1080
+  ],
+  "steps": 800,
+  "seed": 11
+ },
+ {
+  "name": "r0-duels_sumo",
+  "kind": "play",
+  "tag": "round-0",
+  "mode": "duels_sumo",
+  "size": [
+   1920,
+   1080
+  ],
+  "steps": 600,
+  "seed": 12
+ },
+ {
+  "name": "r0-spleef",
+  "kind": "play",
+  "tag": "round-0",
+  "mode": "spleef",
+  "size": [
+   1920,
+   1080
+  ],
+  "steps": 600,
+  "seed": 13
+ },
+ {
+  "name": "r0-duels_classic",
+  "kind": "play",
+  "tag": "round-0",
+  "mode": "duels_classic",
+  "size": [
+   1920,
+   1080
+  ],
+  "steps": 500,
+  "seed": 17
+ },
+ {
+  "name": "openai-duels_sword",
+  "kind": "play",
+  "tag": "openai-rl-2x",
+  "mode": "duels_sword",
+  "size": [
+   1920,
+   1080
+  ],
+  "steps": 500,
+  "seed": 11
+ },
+ {
+  "name": "scratch-duels_classic",
+  "kind": "play",
+  "tag": "scratch-1",
+  "mode": "duels_classic",
+  "size": [
+   1920,
+   1080
+  ],
+  "steps": 500,
+  "seed": 17
+ },
+ {
+  "name": "r0-skywars_solo",
+  "kind": "play",
+  "tag": "round-0",
+  "mode": "skywars_solo",
+  "size": [
+   1920,
+   1080
+  ],
+  "steps": 500,
+  "seed": 14
+ },
+ {
+  "name": "r0-the_bridge",
+  "kind": "play",
+  "tag": "round-0",
+  "mode": "the_bridge",
+  "size": [
+   1920,
+   1080
+  ],
+  "steps": 500,
+  "seed": 15
+ },
+ {
+  "name": "dolly-spleef",
+  "kind": "dolly",
+  "mode": "spleef",
+  "size": [
+   1920,
+   1080
+  ],
+  "steps": 200,
+  "seed": 24,
+  "start_deg": 120,
+  "sweep_deg": 100,
+  "radius": [
+   22,
+   14
+  ],
+  "height": [
+   9,
+   4
+  ]
+ },
+ {
+  "name": "hero4k-r0-duels_sword",
+  "kind": "play",
+  "tag": "round-0",
+  "mode": "duels_sword",
+  "size": [
+   3840,
+   2160
+  ],
+  "steps": 220,
+  "seed": 31
+ },
+ {
+  "name": "dolly4k-duels_sword",
+  "kind": "dolly",
+  "mode": "duels_sword",
+  "size": [
+   3840,
+   2160
+  ],
+  "steps": 320,
+  "seed": 25,
+  "start_deg": 30,
+  "sweep_deg": 90,
+  "radius": [
+   22,
+   14
+  ],
+  "height": [
+   8,
+   3
+  ]
+ }
 ]
