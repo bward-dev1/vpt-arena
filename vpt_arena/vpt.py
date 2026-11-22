@@ -101,6 +101,58 @@ def build_idm(arch="idm4x", net_overrides=None):
     )
 
 
+class _PassFeatures(nn.Module):
+    """Wraps the image stage: real frames go through it (and the output is remembered); precomputed
+    features (B, T, hidsize floats) pass straight through. Lets RL reuse rollout features in the update."""
+
+    def __init__(self, inner, hidsize):
+        super().__init__()
+        self.inner, self.hidsize, self.last = inner, hidsize, None
+
+    def forward(self, x):
+        if x.dim() == 3 and x.is_floating_point() and x.shape[-1] == self.hidsize:
+            return x
+        out = self.inner(x)
+        self.last = out.detach()
+        return out
+
+
+class _PassPre(nn.Module):
+    def __init__(self, inner):
+        super().__init__()
+        self.inner = inner
+
+    def forward(self, x):
+        return x if x.dim() == 3 and x.is_floating_point() else self.inner(x)
+
+
+def freeze_image_encoder(policy):
+    """Freeze VPT's image CNN and let callers feed cached features instead of frames (state_dict keys unchanged)."""
+    net = policy.net
+    if isinstance(net.img_process, _PassFeatures):
+        return policy
+    for p in net.img_process.parameters():
+        p.requires_grad_(False)
+    hid = net.hidsize
+    pre, proc = net.img_preprocess, net.img_process
+    # keep the original modules registered under their own names so weights load/save unchanged
+    object.__setattr__(net, "_img_preprocess_raw", pre)
+    object.__setattr__(net, "_img_process_raw", proc)
+    net._modules["img_preprocess"] = _PassPre(pre)
+    net._modules["img_process"] = _PassFeatures(proc, hid)
+    return policy
+
+
+def state_dict_plain(policy):
+    """state_dict with the original key names even when freeze_image_encoder wrapped the image stage."""
+    sd = policy.state_dict()
+    out = {}
+    for k, v in sd.items():
+        k2 = k.replace("img_process.inner.", "img_process.").replace("img_preprocess.inner.", "img_preprocess.")
+        out[k2] = v
+    return out
+
+
 def load_weights(model, path, device="cpu"):
     """Load VPT .weights or one of our checkpoints. Reports anything that didn't match."""
     sd = th.load(path, map_location=device, weights_only=True)

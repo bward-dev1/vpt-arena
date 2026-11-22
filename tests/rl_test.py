@@ -92,6 +92,26 @@ def main():
     print(f"return per step: first iters {early:.3f}, last iters {late:.3f}")
     assert (run / "rl_log.jsonl").exists() and (run / "policy.weights").exists()
     assert late > early + 0.1 and late > 0.25, "PPO did not learn AttackOnRed"
+    # frozen-encoder path: features cached during the rollout give the same log-probs in the update
+    th.manual_seed(1)
+    pol2 = build_policy("1x", net_overrides=TINY)
+    pri2 = build_policy("1x", conditioned=False, net_overrides=TINY)
+    pri2.load_state_dict({k: v for k, v in pol2.state_dict().items() if "diff_obs_process" not in k}, strict=False)
+    ppo2 = PPO(pol2, [AttackOnRed(seed=i, episode_len=11) for i in range(4)], ["duels_sword"] * 4, prior=pri2, T=16,
+               lr=3e-4, freeze_cnn=True)
+    roll = ppo2.collect()
+    pol2.eval()
+    with th.no_grad():
+        (pd, _), _ = segmented_forward(pol2, {"img": th.as_tensor(roll["img"], dtype=th.float32),
+                                              "diff_goal": ppo2.cond[:, None].expand(-1, 16, -1)},
+                                       th.as_tensor(roll["first"]), roll["start_state"])
+        lp = masked_logprob(pol2, pd, th.as_tensor(roll["buttons"]), th.as_tensor(roll["camera"]), ppo2.cam_off)
+    d2 = float((lp - th.as_tensor(roll["logp"])).abs().max())
+    print(f"frozen encoder: max |logp diff| = {d2:.2e}")
+    assert d2 < 1e-3 and roll["img"].shape[-1] == 64
+    ppo2.update(roll)
+    from vpt_arena.vpt import state_dict_plain
+    assert not any(".inner." in k for k in state_dict_plain(pol2))
     print("rl checks passed")
 
 

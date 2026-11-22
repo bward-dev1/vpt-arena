@@ -46,7 +46,7 @@ jobs:
             gh release download "${{ inputs.tag }}" -p global.weights -D w
           fi
       - name: Evaluate
-        run: xvfb-run -a -s "-screen 0 1024x768x24" python cloud/eval_job.py --weights w/global.weights --name "${{ inputs.tag }}" --modes "${{ matrix.modes }}" --episodes "${{ inputs.episodes }}" --out eval --clips clips
+        run: xvfb-run -a -s "-screen 0 1024x768x24" python cloud/eval_job.py --weights w/global.weights --name "${{ inputs.tag }}" --arch "$( [[ '${{ inputs.tag }}' == scratch-* ]] && echo small || echo 1x )" --modes "${{ matrix.modes }}" --episodes "${{ inputs.episodes }}" --out eval --clips clips
       - uses: actions/upload-artifact@v4
         with: {name: "eval-${{ strategy.job-index }}", path: "eval\nclips"}
   publish:

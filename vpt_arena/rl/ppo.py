@@ -21,7 +21,7 @@ from .. import games
 from ..data import resize_frame
 from ..train_bc import detach_state, to_device_state
 from ..seqfwd import segmented_forward
-from ..vpt import ActionCodec
+from ..vpt import ActionCodec, freeze_image_encoder, state_dict_plain
 
 import lib.tree_util as tree_util  # noqa: E402
 
@@ -42,7 +42,7 @@ def masked_entropy(policy, pd, buttons, cam_off):
 class PPO:
     def __init__(self, policy, envs, modes, prior=None, device="cpu", T=64, lr=2e-5, clip=0.2, vf_coef=0.5,
                  ent_coef=0.0, kl_coef=0.2, kl_decay=0.9995, gamma=0.999, lam=0.95, epochs=2, minibatches=1,
-                 max_grad=1.0, vf_warmup=0, run=None, parallel_envs=True):
+                 max_grad=1.0, vf_warmup=0, run=None, parallel_envs=True, freeze_cnn=False):
         self.policy, self.prior, self.envs = policy, prior, envs
         self.device = th.device(device)
         self.N, self.T = len(envs), T
@@ -52,7 +52,13 @@ class PPO:
         self.kl_coef, self.kl_decay = kl_coef, kl_decay
         self.gamma, self.lam, self.epochs, self.minibatches, self.max_grad = gamma, lam, epochs, minibatches, max_grad
         self.vf_warmup = vf_warmup
-        self.opt = th.optim.Adam(policy.parameters(), lr=lr)
+        self.freeze_cnn = freeze_cnn
+        if freeze_cnn:
+            # VPT's image CNN stays fixed: the update reuses features computed while playing (about 2x faster)
+            freeze_image_encoder(policy)
+            if prior is not None:
+                freeze_image_encoder(prior)
+        self.opt = th.optim.Adam([q for q in policy.parameters() if q.requires_grad], lr=lr)
         self.codec = ActionCodec()
         self.cam_off = th.from_numpy(self.codec.mapper.BUTTON_IDX_TO_CAMERA_META_OFF).to(self.device)
         self.state = to_device_state(policy.initial_state(self.N), self.device)
@@ -84,10 +90,12 @@ class PPO:
             first = th.from_numpy(self.first).to(dev)
             obs = {"img": img, "diff_goal": self.cond}
             tok, self.state, res = p.act(obs, first, self.state, stochastic=True, return_pd=True)
+            feat = p.net.img_process.last[:, 0] if self.freeze_cnn else None  # (N, hidsize)
             pd = {k: v.unsqueeze(1) for k, v in res["pd"].items()}
             lp = masked_logprob(p, pd, tok["buttons"][:, None], tok["camera"][:, None], self.cam_off)[:, 0]
             if self.prior is not None:
-                _, self.prior_state, _ = self.prior.act({"img": img}, first, self.prior_state, stochastic=True)
+                _, self.prior_state, _ = self.prior.act({"img": feat if feat is not None else img}, first,
+                                                        self.prior_state, stochastic=True)
             actions = self.codec.tokens_to_env({k: v.cpu().numpy() for k, v in tok.items()})
             rew, done = np.zeros(N, np.float32), np.zeros(N, bool)
             nxt = np.empty_like(self.obs)
@@ -109,7 +117,7 @@ class PPO:
                     self.finished.append(ep)
                     self.ep_ret[i], self.ep_len[i] = 0, 0
                 nxt[i] = resize_frame(frame)
-            for k, v in (("img", self.obs), ("first", self.first), ("buttons", tok["buttons"].cpu().numpy()),
+            for k, v in (("img", feat.cpu().numpy() if feat is not None else self.obs), ("first", self.first), ("buttons", tok["buttons"].cpu().numpy()),
                          ("camera", tok["camera"].cpu().numpy()), ("logp", lp.cpu().numpy()),
                          ("value", res["vpred"].reshape(-1).cpu().numpy()), ("reward", rew), ("done", done)):
                 buf[k].append(v)
@@ -137,7 +145,7 @@ class PPO:
         p, dev = self.policy, self.device
         p.train()
         t = lambda k, dt=None: th.as_tensor(roll[k], device=dev, dtype=dt)  # noqa: E731
-        img, first = t("img"), t("first")
+        img, first = (t("img", th.float32) if self.freeze_cnn else t("img")), t("first")
         buttons, camera = t("buttons", th.long), t("camera", th.long)
         old_lp, adv, ret = t("logp", th.float32), t("adv", th.float32), t("ret", th.float32)
         adv = (adv - adv.mean()) / (adv.std() + 1e-8)
@@ -227,10 +235,10 @@ class PPO:
 
     def save(self):
         tmp = self.run / "latest.pt.tmp"
-        th.save({"policy": self.policy.state_dict(), "optim": self.opt.state_dict(), "iter": self.iter,
+        th.save({"policy": state_dict_plain(self.policy), "optim": self.opt.state_dict(), "iter": self.iter,
                  "env_steps": self.env_steps, "kl_coef": self.kl_coef}, tmp)
         tmp.replace(self.run / "latest.pt")
-        th.save(self.policy.state_dict(), self.run / "policy.weights")
+        th.save(state_dict_plain(self.policy), self.run / "policy.weights")
 
     def finished_episodes(self):
         return list(self.finished)

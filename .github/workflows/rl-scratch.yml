@@ -1,0 +1,95 @@
+name: rl-scratch
+# Comparison track: a small policy (about 5M params, the VPT architecture family) trained FROM SCRATCH with the
+# same arenas, PPO and rounds as the VPT model. 6 workers x 4 modes; releases scratch-N.
+on:
+  workflow_dispatch:
+    inputs:
+      round: {description: "round number", default: "0"}
+      weights_tag: {description: "release tag with global.weights (empty = random init)", default: ""}
+      minutes: {description: "training minutes per worker", default: "150"}
+      max_rounds: {description: "stop after this many rounds", default: "8"}
+permissions:
+  contents: write
+  actions: write
+concurrency: {group: rl-scratch, cancel-in-progress: false}
+jobs:
+  worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {job: s01, modes: "duels_sword,duels_classic,duels_uhc,duels_nodebuff"}
+          - {job: s02, modes: "duels_sumo,duels_boxing,duels_bow,duels_combo"}
+          - {job: s03, modes: "build_uhc,the_bridge,bedwars_solo,bedwars_doubles"}
+          - {job: s04, modes: "bedwars_squads,capture_the_wool,skywars_solo,skywars_doubles"}
+          - {job: s05, modes: "uhc,survival_games,kitpvp,spleef"}
+          - {job: s06, modes: "tnt_run,parkour_duel,survival,duels_sword"}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+      JOB: s${{ inputs.round }}-${{ matrix.job }}
+      LP_NUM_THREADS: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.10"}
+      - name: Free disk
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+      - name: System packages
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q openjdk-8-jdk xvfb mesa-utils libegl1 libgl1-mesa-dri libglu1-mesa-dev libgl1-mesa-dev
+          echo "JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64" >> $GITHUB_ENV
+          echo "/usr/lib/jvm/java-8-openjdk-amd64/bin" >> $GITHUB_PATH
+      - name: Python packages
+        run: |
+          pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -q minestudio attrs psutil "numpy<2"
+      - name: Engine
+        run: python -c "from minestudio.simulator.entry import check_engine; check_engine(skip_confirmation=True)"
+      - name: Weights
+        run: |
+          mkdir -p w
+          if [ -n "${{ inputs.weights_tag }}" ]; then gh release download "${{ inputs.weights_tag }}" -p global.weights -D w; W=w/global.weights; else W=random; fi
+          echo "W=$W" >> $GITHUB_ENV
+          ls -la w
+      - name: Train
+        run: |
+          set -o pipefail
+          mkdir -p out/$JOB
+          ( while true; do sleep 180; python cloud/push_status.py out/$JOB || true; done ) &
+          xvfb-run -a -s "-screen 0 1024x768x24" python cloud/rl_job.py --modes "${{ matrix.modes }}" \
+            --arch small --weights "$W" --prior "$W" --minutes "${{ inputs.minutes }}" \
+            --out out/$JOB --round "${{ inputs.round }}" --seed "${{ strategy.job-index }}" 2>&1 | tee out/$JOB/stdout.log
+          python cloud/push_status.py out/$JOB || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: "${{ env.JOB }}", path: "out/${{ env.JOB }}", retention-days: 7}
+  aggregate:
+    needs: worker
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.10"}
+      - run: pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+      - uses: actions/download-artifact@v4
+        with: {path: art}
+      - name: Merge
+        run: python cloud/aggregate.py --inputs art --out global.weights --summary summary.json
+      - name: Release
+        run: |
+          TAG=scratch-${{ inputs.round }}
+          gh release create "$TAG" global.weights summary.json --title "Scratch round ${{ inputs.round }}" --notes "From-scratch comparison model (small, no pretraining) after round ${{ inputs.round }}." --prerelease
+      - name: Evaluate this round
+        run: gh workflow run eval-round.yml -f tag=scratch-${{ inputs.round }} -f episodes=3
+      - name: Next round
+        run: |
+          N=$(( ${{ inputs.round }} + 1 ))
+          if [ "$N" -lt "${{ inputs.max_rounds }}" ]; then
+            gh workflow run rl-scratch.yml -f round=$N -f weights_tag=scratch-${{ inputs.round }} -f minutes=${{ inputs.minutes }} -f max_rounds=${{ inputs.max_rounds }}
+          fi

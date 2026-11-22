@@ -84,7 +84,7 @@ def health(info):
 
 
 class ArenaSimEnv:
-    def __init__(self, mode, seed=0, sim=None, obs_size=(128, 128), difficulty=1.0, task=None):
+    def __init__(self, mode, seed=0, sim=None, obs_size=(128, 128), difficulty=1.0, task=None, adaptive=False):
         self.task = task if task is not None else TASKS[mode]
         self.mode = mode
         self.rng = random.Random(seed)
@@ -94,6 +94,7 @@ class ArenaSimEnv:
         self.sim = sim if sim is not None else self._new_sim()
         self.recoveries = 0
         self.difficulty = float(difficulty)
+        self.adaptive, self.outcomes = adaptive, []
         self.started = False
         self.episode = 0
         self.noop = None
@@ -326,11 +327,21 @@ class ArenaSimEnv:
             if self.mode == "tnt_run":
                 won = True
         done = died or won or timeout
+        if done and self.adaptive:
+            # keep each mode where it can learn: harder after a winning streak, easier after a losing one
+            self.outcomes = (self.outcomes + [bool(won)])[-10:]
+            if len(self.outcomes) >= 6:
+                wr = sum(self.outcomes) / len(self.outcomes)
+                if wr > 0.5:
+                    self.difficulty, self.outcomes = min(1.0, self.difficulty + 0.1), []
+                elif wr < 0.1 and self.difficulty > 0.15:
+                    self.difficulty, self.outcomes = max(0.15, self.difficulty - 0.05), []
         if done and (fell or hp <= 0):
             self._cmd("/kill @p")  # immediate respawn; next reset rebuilds
         self.prev = info
         self.ret += r
-        return obs["image"], float(r), bool(done), {"won": won, "died": died, "events": ev, "mode": self.mode}
+        return obs["image"], float(r), bool(done), {"won": won, "died": died, "events": ev, "mode": self.mode,
+                                                   "difficulty": round(self.difficulty, 2)}
 
     def close(self):
         try:
