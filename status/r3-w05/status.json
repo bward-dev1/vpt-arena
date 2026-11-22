@@ -1,0 +1,1 @@
+{"job": "r3-w05", "state": "running", "round": 3, "modes": ["build_uhc", "the_bridge"], "started": 1795321749.889119, "iter": 9, "env_steps": 720, "fps": 17.6, "per_mode": {}, "minutes_left": 147.2, "updated": 1795321918.7705848}
