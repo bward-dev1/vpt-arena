@@ -29,6 +29,7 @@ const Versus: React.FC<{P: P; a: string; b: string; mode: string; start: number;
       <div style={{position: 'absolute', left: W / 2, top: 0, width: W / 2, height: H, overflow: 'hidden'}}>
         <Shot c={clipOf(P, b, mode)} start={start} dur={dur} ramp={ramp} push={[1.04, 1.12]} drift={[0, 20]} />
       </div>
+      <div style={{position: 'absolute', left: 0, right: 0, top: 0, height: 170, background: 'linear-gradient(180deg, rgba(0,0,0,0.55), rgba(0,0,0,0))'}} />
       <Divider />
       <div style={{position: 'absolute', left: 70, top: 56}}>
         <Line at={0.6} mono size={22} track={0.18} align="left">{labelA || tagLabel(a)}</Line>
@@ -109,7 +110,7 @@ const Premise: React.FC<{P: P}> = ({P}) => {
       </At>
       <At from={6.4} dur={6.4}>
         <Shot c={clipOf(P, 'baseline', 'bedwars_squads')} start={5} dur={6.4} blur={10} dim={0.4} push={[1.12, 1.2]} drift={[40, -60]} />
-        <div style={{position: 'absolute', left: 250, top: 120, width: 1000, height: 562, overflow: 'hidden', boxShadow: '0 30px 80px rgba(0,0,0,0.7)'}}>
+        <div style={{position: 'absolute', left: 170, top: 120, width: 1000, height: 562, overflow: 'hidden', boxShadow: '0 30px 80px rgba(0,0,0,0.7)'}}>
           <Shot c={clipOf(P, 'baseline', 'skywars_solo')} start={4} dur={6.4} push={[1.0, 1.1]} drift={[30, -30]} />
         </div>
         <div style={{position: 'absolute', right: 110, bottom: 130, width: 560}}>

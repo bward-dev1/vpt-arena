@@ -110,7 +110,7 @@ export const Line: React.FC<{children: React.ReactNode; at: number; until?: numb
     <div style={{
       fontFamily: mono ? K.mono : K.serif, fontWeight: 500, fontStyle: italic ? 'italic' : 'normal', fontSize: size, letterSpacing: `${track}em`,
       textTransform: mono ? 'uppercase' : undefined, color, textAlign: align, opacity: inn * out, transform: `translateY(${(1 - inn) * 14}px)`,
-      filter: inn < 1 ? `blur(${(1 - inn) * 6}px)` : undefined, textShadow: '0 2px 24px rgba(0,0,0,0.6)', ...style,
+      filter: inn < 1 ? `blur(${(1 - inn) * 6}px)` : undefined, textShadow: '0 2px 24px rgba(0,0,0,0.6)', fontVariantNumeric: 'lining-nums', ...style,
     }}>{children}</div>
   );
 };
