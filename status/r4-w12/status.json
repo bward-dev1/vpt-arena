@@ -1,1 +1,1 @@
-{"job": "r4-w12", "state": "running", "round": 4, "modes": ["survival", "duels_sword"], "started": 1795333286.9289207, "iter": 10, "env_steps": 800, "fps": 16.3, "per_mode": {}, "minutes_left": 147.1, "updated": 1795333463.1413524}
+{"job": "r4-w12", "state": "running", "round": 4, "modes": ["survival", "duels_sword"], "started": 1795333286.9289207, "iter": 31, "env_steps": 2480, "fps": 16.8, "per_mode": {"duels_sword": {"episodes": 1, "return": -2.0, "win_rate": 0.0, "difficulty": 0.9}}, "minutes_left": 144.0, "updated": 1795333645.3263633}
