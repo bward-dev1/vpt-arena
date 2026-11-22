@@ -1,0 +1,1 @@
+{"job": "s1-s05", "state": "running", "round": 1, "modes": ["uhc", "survival_games", "kitpvp", "spleef"], "started": 1795319086.553136, "iter": 2, "env_steps": 320, "fps": 29.1, "per_mode": {}, "minutes_left": 147.0, "updated": 1795319264.4730225}
