@@ -485,7 +485,7 @@ async function handle(request, env, url) {
   if (m) return serveVideo(request, env, "simclip60:" + m[1] + ":" + Number(m[2]));
   m = /^\/clips(60)?\/([A-Za-z0-9][A-Za-z0-9._-]{0,63})\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})\.mp4$/.exec(path);
   if (m) return serveVideo(request, env, (m[1] ? "clip60:" : "clip:") + m[2] + ":" + m[3]);
-  const TR = { "/trailer.mp4": "trailer:main", "/trailer-vertical.mp4": "trailer:vertical", "/trailer-60.mp4": "trailer:main60", "/trailer-cinematic.mp4": "trailer:cinematic", "/trailer-cinematic-60.mp4": "trailer:cinematic60" };
+  const TR = { "/trailer.mp4": "trailer:main", "/trailer-vertical.mp4": "trailer:vertical", "/trailer-60.mp4": "trailer:main60", "/trailer-cinematic.mp4": "trailer:cinematic", "/trailer-cinematic-60.mp4": "trailer:cinematic60", "/trailer-theatrical.mp4": "trailer:theatrical", "/trailer-theatrical-60.mp4": "trailer:theatrical60" };
   if (TR[path]) return serveVideo(request, env, TR[path]);
   return null;
 }

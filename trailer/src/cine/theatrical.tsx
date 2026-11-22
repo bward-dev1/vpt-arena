@@ -75,7 +75,11 @@ const Center: React.FC<{children: React.ReactNode; gap?: number; top?: number}> 
 );
 
 const Dark: React.FC<{c: ClipRef; start: number; dur: number; blur?: number; dim?: number; ramp?: any; push?: [number, number]; drift?: [number, number]; grade?: number}> = ({c, start, dur, blur = 0, dim = 0.5, ramp, push = [1.05, 1.16], drift = [0, -30], grade = 1.3}) => (
-  <Shot c={c} start={start} dur={dur} blur={blur} dim={dim} ramp={ramp} push={push} drift={drift} filter={HEAVY} grade={grade} />
+  <AbsoluteFill>
+    <Shot c={c} start={start} dur={dur} blur={blur} dim={dim} ramp={ramp} push={push} drift={drift} filter={HEAVY} grade={grade} />
+    {/* the old eval clips carry a game hint box in the top-right corner: fade that corner to black */}
+    <div style={{position: 'absolute', right: 0, top: 0, width: 560, height: 170, background: 'radial-gradient(ellipse at 100% 0%, rgba(0,0,0,0.97) 0%, rgba(0,0,0,0.92) 48%, rgba(0,0,0,0) 80%)'}} />
+  </AbsoluteFill>
 );
 
 const ref = (P: P, name: string, tag: string, mode: string): ClipRef => shotRef(P, name) || clipFor(P, tag, mode);
@@ -347,8 +351,8 @@ const Finale: React.FC<{P: P}> = ({P}) => {
           <AbsoluteFill style={{background: 'radial-gradient(ellipse at 50% 50%, rgba(150,35,25,0.6), rgba(0,0,0,0) 62%)', opacity: ease(t / 0.6)}} />
           <Flash at={0} strength={1} dur={0.8} />
           <Flash at={1.5} strength={1} dur={0.8} />
-          <div style={{position: 'absolute', left: 0, right: 0, top: 20}}><AbsoluteFill style={{alignItems: 'center'}}><Hit at={0} size={330} tint="red" flare={1.6} y="30%">{`${w} wins.`}</Hit></AbsoluteFill></div>
-          <div style={{position: 'absolute', left: 0, right: 0, top: 330}}><AbsoluteFill style={{alignItems: 'center'}}><Hit at={1.5} size={440} flare={1.8} y="62%">Ever.</Hit></AbsoluteFill></div>
+          <div style={{position: 'absolute', left: 0, right: 0, top: 46}}><AbsoluteFill style={{alignItems: 'center'}}><Hit at={0} size={296} tint="red" flare={1.6} y="30%">{`${w} wins.`}</Hit></AbsoluteFill></div>
+          <div style={{position: 'absolute', left: 0, right: 0, top: 350}}><AbsoluteFill style={{alignItems: 'center'}}><Hit at={1.5} size={408} flare={1.8} y="62%">Ever.</Hit></AbsoluteFill></div>
         </>
       )}
       {t >= 3 && (

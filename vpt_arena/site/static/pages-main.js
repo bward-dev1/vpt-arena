@@ -322,8 +322,8 @@ function trailerInfo() {
   if (!STATIC) return Promise.resolve(null);
   if (!trailerP) {
     const has = u => fetch(u, { headers: { range: "bytes=0-0" }, cache: "no-store" }).then(r => r.ok || r.status === 206).catch(() => false);
-    trailerP = Promise.all([has("/trailer.mp4"), has("/trailer-vertical.mp4"), has("/trailer-60.mp4"), has("/trailer-cinematic.mp4"), has("/trailer-cinematic-60.mp4")])
-      .then(([main, vertical, p60, cine, cine60]) => main || cine ? { main, vertical, p60, cine, cine60 } : null);
+    trailerP = Promise.all([has("/trailer.mp4"), has("/trailer-vertical.mp4"), has("/trailer-60.mp4"), has("/trailer-cinematic.mp4"), has("/trailer-cinematic-60.mp4"), has("/trailer-theatrical.mp4"), has("/trailer-theatrical-60.mp4")])
+      .then(([main, vertical, p60, cine, cine60, theat, theat60]) => main || cine || theat ? { main, vertical, p60, cine, cine60, theat, theat60 } : null);
   }
   return trailerP;
 }
@@ -337,12 +337,13 @@ function openTrailer(t, cut) {
   if (!ov) { ov = document.createElement("div"); ov.id = "trailerbox"; ov.className = "lightbox trl"; ov.setAttribute("role", "dialog"); ov.setAttribute("aria-modal", "true"); ov.setAttribute("aria-label", "Trailer"); document.body.appendChild(ov);
     ov.addEventListener("click", e => { if (e.target === ov || e.target.closest(".lb-close")) { const v = $("video", ov); if (v) v.pause(); ov.hidden = true; } const c = e.target.closest("[data-cut]"); if (c && ov._t) openTrailer(ov._t, c.dataset.cut); });
     document.addEventListener("keydown", e => { if (e.key === "Escape" && !ov.hidden) { const v = $("video", ov); if (v) v.pause(); ov.hidden = true; } }); }
-  ov._t = t; cut = cut || (t.main ? "standard" : "cinematic");
+  ov._t = t; cut = cut || (t.main ? "standard" : t.cine ? "cinematic" : "theatrical");
   const portrait = innerWidth < innerHeight && innerWidth < 760 && t.vertical && cut === "standard";
-  const u30 = cut === "cinematic" ? "/trailer-cinematic.mp4" : portrait ? "/trailer-vertical.mp4" : "/trailer.mp4";
-  const u60 = cut === "cinematic" ? (t.cine60 ? "/trailer-cinematic-60.mp4" : "") : !portrait && t.p60 ? "/trailer-60.mp4" : "";
+  const u30 = cut === "theatrical" ? "/trailer-theatrical.mp4" : cut === "cinematic" ? "/trailer-cinematic.mp4" : portrait ? "/trailer-vertical.mp4" : "/trailer.mp4";
+  const u60 = cut === "theatrical" ? (t.theat60 ? "/trailer-theatrical-60.mp4" : "") : cut === "cinematic" ? (t.cine60 ? "/trailer-cinematic-60.mp4" : "") : !portrait && t.p60 ? "/trailer-60.mp4" : "";
   const src = getFps() === 60 && u60 ? u60 : u30;
-  const cuts = t.main && t.cine ? `<div class="cuts" role="group" aria-label="Trailer cut"><button type="button" class="chip ${cut === "standard" ? "on" : ""}" data-cut="standard">Standard cut</button><button type="button" class="chip ${cut === "cinematic" ? "on" : ""}" data-cut="cinematic">Cinematic cut</button></div>` : "";
+  const avail = [["standard", "Standard cut", t.main], ["cinematic", "Cinematic cut", t.cine], ["theatrical", "Theatrical trailer", t.theat]].filter(c => c[2]);
+  const cuts = avail.length > 1 ? `<div class="cuts" role="group" aria-label="Trailer cut">${avail.map(c => `<button type="button" class="chip ${cut === c[0] ? "on" : ""}" data-cut="${c[0]}">${c[1]}</button>`).join("")}</div>` : "";
   ov.innerHTML = `<button type="button" class="lb-close" aria-label="Close trailer">Close</button>${cuts}<div class="trl-box vbox ${portrait ? "vert" : ""}" data-fsbox data-u30="${u30}" data-u60="${u60}"><video controls playsinline autoplay src="${src}" aria-label="VPT Arena trailer, ${cut} cut"></video><div class="vtools">${fpsBtn(u60)}${fsBtn}</div></div>`;
   ov.hidden = false; lastBox = $(".trl-box", ov); $(".lb-close", ov).focus();
 }
