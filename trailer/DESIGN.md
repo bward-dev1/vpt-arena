@@ -149,3 +149,46 @@ Return is the evaluation's shaped return, not a win count; the cut says "return"
 - The rivals come after the learning, not before: first show it moves, then show where it stands.
 - The hush before "Yet." is a missing sound, not a loud one. After a full-orchestra bar, one low piano note is the loudest thing the film can do.
 - Letterbox, grain, teal/amber and serif type are cinema's own shorthand; used sparingly they signal "this is a story" without any cinematic-looking claims.
+
+---
+
+# HD footage framework (kept for later; not used by the current cuts)
+
+`.github/workflows/trailer-footage.yml`, `cloud/footage.py` and the task lists `cloud/footage_tasks_a.json` / `_b.json` shoot the real models in the arenas at 1920x1080 (plus 3840x2160 hero shots) with fancy graphics and warm light. The agent still acts on its normal 128x128 view; only the recording is large.
+
+- Run `gh workflow run trailer-footage.yml -f run=probe` first (about 10 minutes, one machine): fps at 360p / 1080p / 4K and sample frames. Measured on a 4-vCPU runner: environment steps per second 38.6 at 360p, 12.8 to 16.0 at 1080p, 4.4 at 4K; the 1x policy acts about 21 times per second, so a 1080p episode runs at roughly 8 steps per second and a 4K one at about 3.6.
+- Then `gh workflow run trailer-footage.yml -f run=shoot -f max_minutes=70` (two machines). Output goes to release `footage`: `<name>-60.mp4` (20 fps game frames blended to 60 fps) and `<name>.json` (per-step reward, damage dealt, health, done) so highlights can be cut where damage lands.
+- `vpt_arena/rl/sim_env.py` now writes the engine's `options.txt` (the engine ships none, so the game started with the tutorial on): `tutorialStep:none`, recipes unlocked at the first reset (no recipe toast), and for footage (`VPT_RENDER_SIZE=1920x1080 VPT_LOOK=cine`) fancy graphics, clouds, view distance 12, a GUI scale that follows the render size, and sunset light. Verified in the probe: tutorial hint gone, options reach the instance.
+- The cinematic and theatrical compositions (`src/cine/`) use footage from the `footage` release automatically when it exists (`P.shots`), and fall back to the 480x270 eval clips. Render at 4K by adding `--scale=2` to the Remotion command (the composition stays 1920x1080, so vector layers and video frames are re-rasterised at 4K).
+
+---
+
+# Theatrical trailer: maximal blockbuster treatment (`trailer-theatrical-30.mp4`)
+
+90 s, 2.39:1 inside 1080p, 80 BPM (bar = 3 s, 30 bars). Everything is played completely straight: the treatment is as large as the format allows and the numbers on screen are the real ones, read from the releases at render time. Score: `audio/theatrical_score.py` (real sampled instruments: low brass, taiko and timpani, choir, string ostinato, woodblock clock, orchestra hits; hard stops into true silence; one final massive hit). Workflow: `.github/workflows/trailer-theatrical.yml`.
+
+| Time | Beat | On screen | Music |
+|---|---|---|---|
+| 0-3 | silence | black | nothing |
+| 3.0 | one low braam | "In a world where" / "one network plays 23 game modes..." | low brass cluster, fading rumble |
+| 9-12 | slow-motion swing | round-4 duel at 25 percent speed, heartbeat vignette | timpani heartbeat, tremolo rising |
+| 12 | hit 1 | "6.22 million steps." (value from the releases' summaries) | braam, taiko, cymbal |
+| 15 | hit 2 | "5 rounds of training." | bigger |
+| 18 | hit 3 | "23 game modes." | biggest so far; hard stop at 20.25 |
+| 20.25-24 | silence | black | silence |
+| 24 | the hit | "0 wins." in red chrome, flare, shake | full orchestra and choir |
+| 27-33 | what it faced | "It has fought" / "zombies." / "skeletons." / "vindicators." | string 16ths, brass pulse |
+| 33 | the line | "It has defeated" / "none of them." (slow motion) | brass stab |
+| 36-54 | hero slow motion | the agent falling off a sky arena; walking confidently the wrong way; a perfectly aimed swing that lands on the floor | full choir, horn theme, half-time taiko |
+| 54-57 | pull quotes | five gold stars, "It was right behind me." -- The zombie; "Hasn't touched me in 69 games." -- A skeleton | piano and strings |
+| 57 | the boast | "It loses less badly than" / "OpenAI's best model." with -1.57 against -3.37 | trumpet fanfare |
+| 60 | the boast, part two | "It scores higher in" / "8 of 8 duels." with confetti | hit; hard stop at 62.25 |
+| 62.25-64.5 | silence | black | silence |
+| 64.5 | the beat | "It still lost all of them." | one low piano note |
+| 66-73.5 | rising rhythm | cuts every 0.75 s, then 0.375 s, then 0.19 s; a ticking clock; GAMES 00 / 69 counting up; WINS 0 | woodblock tick doubling, taiko, ostinato, riser; stop at 73.5 |
+| 73.5-75 | silence | black | silence |
+| 75 / 76.5 | the biggest hit | "0 wins." then "Ever." | everything, twice |
+| 78-81 | tagline | "0 wins. Ever." | piano, strings, choir |
+| 81-90 | end card | "VPT Arena", "Watch it learn live.", vpt-arena.vercel.app, the live card | resolution to D major, final chord |
+
+Type: Anton in chrome, gold or red gradients with a hard drop shadow (titles); Cormorant Garamond for small lines and quotes; JetBrains Mono for data. Light: anamorphic blue streak, bloom and a sweeping light bar on every slam; camera shake decaying over about half a second on each hit, scaled to its weight (10 px on the braam, 64 px on "Ever."); heavy contrast grade (contrast 1.38, teal and orange layers at 1.3 to 1.4 strength); speed ramps from 0.2 to 1.0 on the hero shots. Numbers: steps = sum of `env_steps` in the rounds' `summary.json`; rounds, modes, games, wins and mean returns from `eval.json`; the duel count is the number of duel modes where the latest round's return beats `openai-rl-2x`.

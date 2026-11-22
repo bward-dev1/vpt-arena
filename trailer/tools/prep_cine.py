@@ -66,6 +66,7 @@ want = {("baseline", m) for m in ("duels_sword", "the_bridge", "bedwars_squads",
 for m in improved:
     want |= {(first, m), (last, m)}
 want |= {(last, "duels_sword"), (last, "duels_classic")}
+want |= {(last, m) for m in ("duels_sumo", "spleef", "skywars_solo", "the_bridge", "bedwars_solo", "kitpvp", "tnt_run")}  # theatrical cut
 if rival:
     want.add((rival, "duels_sword"))
 if scr:
