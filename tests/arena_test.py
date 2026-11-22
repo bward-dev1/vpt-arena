@@ -157,6 +157,20 @@ def main():
         assert not d
     _, r, d, inf = env.step({})
     assert d and inf["won"]
+    # popups: options patched in place (tutorial off), recipes unlocked at first reset, agent view keeps its size at high render size
+    import tempfile
+    from vpt_arena.rl import sim_env
+    with tempfile.TemporaryDirectory() as d:
+        open(d + "/options.txt", "w").write("guiScale:2\ntutorialStep:movement\ngraphicsMode:1\n")
+        sim_env.patch_options(dict(sim_env.BASE_OPTIONS, **sim_env.CINE_OPTIONS), runtime_dir=d)
+        txt = open(d + "/options.txt").read().splitlines()
+        assert "tutorialStep:none" in txt and "graphicsMode:2" in txt and "guiScale:2" in txt and "ao:2" in txt, txt
+    sim = FakeSim()
+    ArenaSimEnv("duels_sword", sim=sim).reset()
+    assert "/recipe give @p *" in sim.env.cmds, sim.env.cmds[:12]
+    hd = ArenaSimEnv("duels_sword", sim=FakeSim(), render_size=(1920, 1080))
+    frame = hd.reset()
+    assert frame.shape == (128, 128, 3), frame.shape
     print("arena checks passed")
 
 

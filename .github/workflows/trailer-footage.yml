@@ -1,0 +1,111 @@
+name: trailer-footage
+# High-resolution footage for the trailers: the real models play real arena episodes, recorded at 1920x1080 (plus 3840x2160 hero shots),
+# with fancy graphics and warm light. The agent still acts on its normal 128x128 view. Output goes to release `footage`.
+#   run=probe: one machine, a few minutes: measures frames per second at 360p / 1080p / 4K, saves sample frames (artifact `footage-probe`).
+#   run=shoot: two machines (a: round-4 star + dollies + 4K hero, b: round-0, rivals, 4K shots), each capped by --max-minutes.
+on:
+  workflow_dispatch:
+    inputs:
+      run:
+        description: "probe or shoot"
+        default: "probe"
+      max_minutes:
+        description: "time cap per machine for the shoot"
+        default: "100"
+permissions:
+  contents: write
+env:
+  GH_TOKEN: ${{ github.token }}
+  LP_NUM_THREADS: "4"
+jobs:
+  probe:
+    if: ${{ inputs.run == 'probe' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: System packages
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q ffmpeg openjdk-8-jdk xvfb mesa-utils libegl1 libgl1-mesa-dri libglu1-mesa-dev libgl1-mesa-dev
+          echo "JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64" >> $GITHUB_ENV
+          echo "/usr/lib/jvm/java-8-openjdk-amd64/bin" >> $GITHUB_PATH
+      - name: Python packages
+        run: |
+          pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -q minestudio attrs psutil "numpy<2"
+      - name: Engine
+        run: python -c "from minestudio.simulator.entry import check_engine; check_engine(skip_confirmation=True)"
+      - name: Weights
+        run: |
+          mkdir -p w
+          gh release download round-4 -p global.weights -D w && mv w/global.weights w/round-4.weights
+      - name: Options as shipped (before our patch)
+        run: |
+          D=$(python -c "from minestudio.utils import get_mine_studio_dir as g; print(g())")
+          echo "dir $D"; ls "$D" "$D/runtime" | head -40
+          grep -E "tutorialStep|graphicsMode|renderDistance|guiScale|ao:|renderClouds|fov|gamma" "$D/runtime/options.txt" || true
+          grep -E "ofClouds|ofTrees|ofSmooth" "$D/runtime/optionsof.txt" || true
+          lscpu | grep -E "Model name|^CPU\(s\)"; free -g | head -2
+      - name: Probe
+        run: |
+          xvfb-run -a -s "-screen 0 3840x2160x24" python cloud/footage.py probe --out probe --weights round-4:1x:w/round-4.weights
+          D=$(python -c "from minestudio.utils import get_mine_studio_dir as g; print(g())")
+          echo "--- options after our patch"; grep -E "tutorialStep|graphicsMode|renderDistance|guiScale|ao:|renderClouds" "$D/runtime/options.txt" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: footage-probe
+          path: probe
+  shoot:
+    if: ${{ inputs.run == 'shoot' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 170
+    strategy:
+      fail-fast: false
+      matrix:
+        id: [a, b]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: System packages
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q ffmpeg openjdk-8-jdk xvfb mesa-utils libegl1 libgl1-mesa-dri libglu1-mesa-dev libgl1-mesa-dev
+          echo "JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64" >> $GITHUB_ENV
+          echo "/usr/lib/jvm/java-8-openjdk-amd64/bin" >> $GITHUB_PATH
+      - name: Python packages
+        run: |
+          pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -q minestudio attrs psutil "numpy<2"
+      - name: Engine
+        run: python -c "from minestudio.simulator.entry import check_engine; check_engine(skip_confirmation=True)"
+      - name: Weights
+        run: |
+          mkdir -p w
+          B=https://openaipublic.blob.core.windows.net/minecraft-rl/models
+          if [ "${{ matrix.id }}" = a ]; then
+            gh release download round-4 -p global.weights -D w && mv w/global.weights w/round-4.weights
+            echo "AGENTS=round-4:1x:w/round-4.weights" >> $GITHUB_ENV
+          else
+            gh release download round-0 -p global.weights -D w && mv w/global.weights w/round-0.weights
+            gh release download scratch-1 -p global.weights -D w && mv w/global.weights w/scratch-1.weights
+            curl -sfL -o w/openai-rl-2x.weights $B/rl-from-early-game-2x.weights
+            echo "AGENTS=round-0:1x:w/round-0.weights,scratch-1:small:w/scratch-1.weights,openai-rl-2x:2x:w/openai-rl-2x.weights" >> $GITHUB_ENV
+          fi
+      - name: Shoot
+        run: xvfb-run -a -s "-screen 0 3840x2160x24" python cloud/footage.py shoot --tasks cloud/footage_tasks_${{ matrix.id }}.json --agents "$AGENTS" --out footage --max-minutes ${{ inputs.max_minutes }}
+      - name: Upload to release footage
+        if: always()
+        run: |
+          ls -la footage || true
+          gh release view footage >/dev/null 2>&1 || gh release create footage --title "Footage (HD)" --notes "High-resolution recordings of the models playing arena episodes (1920x1080 and 3840x2160, 60 fps blended from 20 fps game frames) with per-step logs." --prerelease
+          gh release upload footage footage/*-60.mp4 footage/*.json --clobber
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: footage-stills-${{ matrix.id }}
+          path: footage/*.json

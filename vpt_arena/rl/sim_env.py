@@ -6,6 +6,7 @@ kill_entity, mine_block, pickup, craft_item, health, position), read
 defensively because the exact layout varies between versions.
 """
 import math
+import os
 import random
 
 import numpy as np
@@ -21,6 +22,54 @@ CURRICULUM = {
     "cobblestone": (0.3, 11), "stone_pickaxe": (6.0, 1), "furnace": (6.0, 1), "coal": (1.0, 5), "iron_ore": (8.0, 3),
     "iron_ingot": (10.0, 3), "iron_pickaxe": (20.0, 1), "torch": (0.5, 8), "diamond": (40.0, 3),
 }
+
+
+# ---- game options (options.txt / optionsof.txt in MineStudio's runtime dir, copied into every instance) ----
+# Always: no tutorial hints ("Find a tree", "Hold down Left Button"). The recipe-book toast is handled with /recipe give in _reset.
+BASE_OPTIONS = {"tutorialStep": "none"}
+# Footage look (VPT_LOOK=cine): fancy graphics, smooth lighting, clouds, longer view. Only for recording; training and eval keep the stock look.
+CINE_OPTIONS = {"graphicsMode": "2", "ao": "2", "renderClouds": "true", "renderDistance": "12", "biomeBlendRadius": "5",
+                "entityShadows": "true", "mipmapLevels": "4", "particles": "0"}
+CINE_OPTIONS_OF = {"ofClouds": "2", "ofTrees": "2", "ofSmoothWorld": "true"}
+CINE_TIME = "/time set 400"  # low sun, warm light (doDaylightCycle is off, so it stays)
+
+
+def patch_options(overrides, overrides_of=None, runtime_dir=None):
+    """Set keys in the runtime options files. Returns the files touched. Safe to call when the engine is missing."""
+    touched = []
+    try:
+        if runtime_dir:
+            d = runtime_dir
+        else:
+            from minestudio.utils import get_mine_studio_dir
+            d = os.path.join(get_mine_studio_dir(), "runtime")
+    except Exception:
+        return touched
+    for name, over in (("options.txt", overrides), ("optionsof.txt", overrides_of or {})):
+        path = os.path.join(d, name)
+        if not over or not os.path.exists(path):
+            continue
+        lines = open(path).read().splitlines()
+        seen, out = set(), []
+        for ln in lines:
+            k = ln.split(":", 1)[0]
+            if k in over:
+                out.append(f"{k}:{over[k]}")
+                seen.add(k)
+            else:
+                out.append(ln)
+        out += [f"{k}:{v}" for k, v in over.items() if k not in seen]
+        open(path, "w").write("\n".join(out) + "\n")
+        touched.append(path)
+    return touched
+
+
+def parse_size(txt, default=(640, 360)):
+    try:
+        w, h = str(txt).lower().split("x")
+        return int(w), int(h)
+    except Exception:
+        return default
 
 
 _REL = __import__("re").compile(r"~(-?\d+(?:\.\d+)?)?")
@@ -84,12 +133,16 @@ def health(info):
 
 
 class ArenaSimEnv:
-    def __init__(self, mode, seed=0, sim=None, obs_size=(128, 128), difficulty=1.0, task=None, adaptive=False):
+    def __init__(self, mode, seed=0, sim=None, obs_size=(128, 128), difficulty=1.0, task=None, adaptive=False,
+                 render_size=None, look=None):
         self.task = task if task is not None else TASKS[mode]
         self.mode = mode
         self.rng = random.Random(seed)
         self.seed = seed
         self.obs_size = obs_size
+        # recording resolution; the agent still sees obs_size. VPT_RENDER_SIZE=1920x1080 / VPT_LOOK=cine select footage mode.
+        self.render_size = tuple(render_size) if render_size else parse_size(os.environ.get("VPT_RENDER_SIZE", "640x360"))
+        self.look = look if look is not None else os.environ.get("VPT_LOOK", "")
         self.own_sim = sim is None
         self.sim = sim if sim is not None else self._new_sim()
         self.recoveries = 0
@@ -101,7 +154,34 @@ class ArenaSimEnv:
 
     def _new_sim(self):
         from minestudio.simulator import MinecraftSim
-        return MinecraftSim(action_type="env", obs_size=self.obs_size, render_size=(640, 360), seed=self.seed)
+        import minestudio.simulator.entry as entry
+        cine = self.look == "cine"
+        patch_options(dict(BASE_OPTIONS, **(CINE_OPTIONS if cine else {})), CINE_OPTIONS_OF if cine else None)
+        # HUD scale follows the render size (1 at 640x360), so the agent's downsampled view keeps the HUD it was trained with
+        scale = max(1, round(self.render_size[0] / 640))
+        orig = entry.HumanSurvival
+
+        class _HS(orig):
+            def __init__(self, *a, **k):
+                k["guiscale_range"] = [scale, scale]
+                super().__init__(*a, **k)
+        entry.HumanSurvival = _HS
+        try:
+            return MinecraftSim(action_type="env", obs_size=self.obs_size, render_size=self.render_size, seed=self.seed)
+        finally:
+            entry.HumanSurvival = orig
+
+    def _img(self, obs, info=None):
+        """The 128x128 agent view. At the stock 640x360 it is MineStudio's own resize. At a higher recording size the
+        frame is first area-averaged to 640x360 (what the 640x360 render would show), then resized the usual way."""
+        if self.render_size[0] <= 640:
+            return obs["image"]
+        import cv2
+        pov = (info or {}).get("pov")
+        if pov is None:
+            return obs["image"]
+        small = cv2.resize(pov, (640, 360), interpolation=cv2.INTER_AREA)
+        return cv2.resize(small, tuple(self.obs_size), interpolation=cv2.INTER_LINEAR)
 
     def _recover(self, why):
         """The Java side timed out or broke: start a fresh simulator; the next reset does a full reset."""
@@ -175,8 +255,11 @@ class ArenaSimEnv:
             for c in ("/gamerule sendCommandFeedback false", "/gamerule announceAdvancements false",
                       "/gamerule showDeathMessages false",
                       "/gamerule doImmediateRespawn true", "/gamerule doMobSpawning false", "/gamerule doDaylightCycle false",
-                      "/gamerule naturalRegeneration true", "/difficulty normal", "/time set day", "/weather clear 99999"):
+                      "/gamerule naturalRegeneration true", "/difficulty normal",
+                      CINE_TIME if self.look == "cine" else "/time set day", "/weather clear 99999",
+                      "/recipe give @p *"):  # all recipes up front: no "New Recipes Unlocked" toast later
                 self._cmd(c)
+            self._idle(110)  # let the one-off toast from that command finish before anything is recorded
         self.episode += 1
         t = self.task
         self._cmd("/gamerule naturalRegeneration true")
@@ -210,6 +293,7 @@ class ArenaSimEnv:
             for c in self._opponents():
                 self._cmd(c)
         obs, info = self._idle(4)
+        self._last_info = info
         if t.sky:
             # info can lag a teleport by a few frames; wait until it reports the arena
             for _ in range(40):
@@ -229,7 +313,7 @@ class ArenaSimEnv:
         self.cur_units = {k: 0 for k in CURRICULUM}
         self.ret = 0.0
         self.decay_queue, self.last_block = [], None
-        return obs["image"]
+        return self._img(obs, info)
 
     def _goal_dist(self, info):
         g = self.task.goal
@@ -341,7 +425,7 @@ class ArenaSimEnv:
             self._cmd("/kill @p")  # immediate respawn; next reset rebuilds
         self.prev = info
         self.ret += r
-        return obs["image"], float(r), bool(done), {"won": won, "died": died, "events": ev, "mode": self.mode,
+        return self._img(obs, info), float(r), bool(done), {"won": won, "died": died, "events": ev, "mode": self.mode,
                                                    "difficulty": round(self.difficulty, 2),
                                                    "death_cause": cause if died else None,
                                                    "pos": [round(v, 1) for v in p] if p else None}

@@ -1,0 +1,13 @@
+[
+ {"name": "r4-duels_sword", "kind": "play", "tag": "round-4", "mode": "duels_sword", "size": [1920, 1080], "steps": 800, "seed": 11},
+ {"name": "r4-duels_sumo", "kind": "play", "tag": "round-4", "mode": "duels_sumo", "size": [1920, 1080], "steps": 600, "seed": 12},
+ {"name": "r4-spleef", "kind": "play", "tag": "round-4", "mode": "spleef", "size": [1920, 1080], "steps": 600, "seed": 13},
+ {"name": "r4-skywars_solo", "kind": "play", "tag": "round-4", "mode": "skywars_solo", "size": [1920, 1080], "steps": 600, "seed": 14},
+ {"name": "r4-the_bridge", "kind": "play", "tag": "round-4", "mode": "the_bridge", "size": [1920, 1080], "steps": 600, "seed": 15},
+ {"name": "r4-bedwars_solo", "kind": "play", "tag": "round-4", "mode": "bedwars_solo", "size": [1920, 1080], "steps": 600, "seed": 16},
+ {"name": "r4-duels_classic", "kind": "play", "tag": "round-4", "mode": "duels_classic", "size": [1920, 1080], "steps": 500, "seed": 17},
+ {"name": "dolly-duels_sword", "kind": "dolly", "mode": "duels_sword", "size": [1920, 1080], "steps": 200, "seed": 21, "start_deg": 200, "sweep_deg": 100, "radius": [24, 15], "height": [10, 4]},
+ {"name": "dolly-skywars_solo", "kind": "dolly", "mode": "skywars_solo", "size": [1920, 1080], "steps": 200, "seed": 22, "start_deg": 250, "sweep_deg": -90, "radius": [30, 20], "height": [12, 6]},
+ {"name": "dolly-the_bridge", "kind": "dolly", "mode": "the_bridge", "size": [1920, 1080], "steps": 200, "seed": 23, "start_deg": 160, "sweep_deg": 80, "radius": [34, 24], "height": [11, 5]},
+ {"name": "hero4k-r4-duels_sword", "kind": "play", "tag": "round-4", "mode": "duels_sword", "size": [3840, 2160], "steps": 220, "seed": 31}
+]
