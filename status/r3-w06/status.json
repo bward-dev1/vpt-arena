@@ -1,1 +1,1 @@
-{"job": "r3-w06", "state": "running", "round": 3, "modes": ["bedwars_solo", "bedwars_doubles"], "started": 1795322021.4744387, "iter": 5, "env_steps": 400, "fps": 12.4, "per_mode": {}, "minutes_left": 147.1, "updated": 1795322193.30712}
+{"job": "r3-w06", "state": "running", "round": 3, "modes": ["bedwars_solo", "bedwars_doubles"], "started": 1795322021.4744387, "iter": 21, "env_steps": 1680, "fps": 12.8, "per_mode": {}, "minutes_left": 144.1, "updated": 1795322376.4508355}
