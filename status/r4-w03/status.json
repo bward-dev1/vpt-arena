@@ -1,0 +1,1 @@
+{"job": "r4-w03", "state": "running", "round": 4, "modes": ["duels_sumo", "duels_boxing"], "started": 1795333268.731254, "iter": 9, "env_steps": 720, "fps": 18.5, "per_mode": {}, "minutes_left": 147.1, "updated": 1795333444.8076947}
