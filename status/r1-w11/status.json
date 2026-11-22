@@ -1,1 +1,1 @@
-{"job": "r1-w11", "state": "running", "round": 1, "modes": ["tnt_run", "parkour_duel"], "started": 1795299933.486111, "iter": 425, "env_steps": 34000, "fps": 4.9, "per_mode": {"tnt_run": {"episodes": 4, "return": -0.10750000000005999, "win_rate": 0.0}, "parkour_duel": {"episodes": 46, "return": -2.1622318126071973, "win_rate": 0.0}}, "minutes_left": 3.2, "updated": 1795308743.1765625}
+{"job": "r1-w11", "state": "finished", "round": 1, "modes": ["tnt_run", "parkour_duel"], "started": 1795299933.486111, "iter": 435, "env_steps": 34800, "updated": 1795308950.604893}
