@@ -1,6 +1,6 @@
 """Cloud prep for the cinematic cut. Reads every number from the releases' eval.json at render time.
 Run from the repo root: python3 trailer/tools/prep_cine.py  -> trailer/public-cine/ + trailer/props-cine.json"""
-import json, os, re, subprocess
+import json, os, re, subprocess, time
 import requests
 
 REPO = "bward-dev1/vpt-arena"
@@ -67,7 +67,8 @@ for m in improved:
     want |= {(first, m), (last, m)}
 want |= {(last, "duels_sword"), (last, "duels_classic")}
 want |= {(last, m) for m in ("duels_sumo", "spleef", "skywars_solo", "the_bridge", "bedwars_solo", "kitpvp", "tnt_run")}  # theatrical cut
-THEAT = ("duels_classic", "kitpvp", "duels_uhc", "survival_games", "uhc", "duels_combo")  # theatrical hand-picked shots
+# theatrical hand-picked shots: clip -> seconds needed from its start (the last picked moment plus its longest use)
+THEAT = {"duels_classic": 20, "kitpvp": 6, "duels_uhc": 40, "survival_games": 24, "uhc": 22, "duels_combo": 16}
 want |= {(last, m) for m in THEAT}
 if rival:
     want.add((rival, "duels_sword"))
@@ -99,13 +100,13 @@ for m in THEAT:
         if not src:
             continue
         dst = f"hd/{last}-{key}-{m}.mp4"
-        r = run("ffmpeg", "-y", "-v", "error", "-t", "40", "-i", f"{PUB}/{src}", "-vf", VF, "-an", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "15", "-pix_fmt", "yuv420p", f"{PUB}/{dst}", check=False)
+        r = run("ffmpeg", "-y", "-v", "error", "-t", str(THEAT[m]), "-i", f"{PUB}/{src}", "-vf", VF, "-an", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "15", "-pix_fmt", "yuv420p", f"{PUB}/{dst}", check=False)
         if r.returncode == 0:
             out[key] = dst
         else:
             print("hd fail", m, key, r.stderr[-400:])
     if out.get("clip"):
-        hd[k] = {"clip": out["clip"], "clip60": out.get("clip60"), "dur": 40.0}
+        hd[k] = {"clip": out["clip"], "clip60": out.get("clip60"), "dur": float(THEAT[m])}
 print("hd clips:", sorted(hd))
 
 # ---- HD footage (release `footage`): per-episode 60 fps mp4 + step log; highlights are cut from the log (damage dealt / taken, ending) ----
@@ -136,7 +137,14 @@ for jf in sorted(os.listdir(f"{PUB}/footage")):
 print("footage shots:", len(shots), sorted(shots))
 # (pairs of first-round / latest-round footage are chosen below, once all shots are known)
 
-data = requests.get(f"{SITE}/data.json", timeout=60).json()
+data = {}
+for attempt in range(4):  # the site occasionally answers with a non-JSON page for a moment; names are only labels
+    try:
+        data = requests.get(f"{SITE}/data.json", timeout=60).json()
+        break
+    except Exception as e:
+        print("data.json attempt", attempt + 1, "failed:", e)
+        time.sleep(10)
 names = {c["mode"]: c["name"] for c in data.get("overview", {}).get("clips", []) if isinstance(c, dict)}
 
 # live card: last frame of the stream, plus the Live tab as a fallback
