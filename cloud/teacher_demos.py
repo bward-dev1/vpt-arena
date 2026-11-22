@@ -54,7 +54,15 @@ class Teacher:
         self.t = 0
         self.last_swing = -99
         self.strafe = 0
-        self.cached = None  # (yaw, pitch) of the opponent, refreshed every few ticks (each look-up costs 2 game ticks)
+        self.cached = None
+        import re
+        r = None
+        for c in env.task.setup:
+            m = re.match(r"/fill ~-(\d+) ~-1 ~-(\d+)", c)
+            if m:
+                r = int(m.group(1))
+                break
+        self.R = r or 8  # arena radius in blocks (from the floor /fill)  # (yaw, pitch) of the opponent, refreshed every few ticks (each look-up costs 2 game ticks)
 
     def target_direction(self):
         """Ask the game which way the nearest opponent is; returns (yaw, pitch) or None. Restores facing after."""
@@ -70,7 +78,7 @@ class Teacher:
         yaw0, pitch0 = cur
         try:
             _, _, _, info = sim.env.execute_cmd(
-                "/tp @p ~ ~ ~ facing entity @e[type=!player,type=!item,type=!arrow,distance=..48,limit=1,sort=nearest] eyes")
+                "/tp @p ~ ~ ~ facing entity @e[type=!player,type=!item,type=!arrow,distance=..24,limit=1,sort=nearest] eyes")
         except Exception:
             return None
         got = yaw_pitch(info) or (yaw0, pitch0)
@@ -94,19 +102,30 @@ class Teacher:
             a["camera"] = np.array([0.0, self.rng.uniform(-4, 4)])
             self.t += 1
             return a
-        dyaw, dpitch = wrap(tgt[0] - yaw0), tgt[1] - pitch0
+        tyaw, tpitch = tgt[0], float(np.clip(tgt[1], -25, 35))
+        # edge guard: near the rim of a sky arena, head back toward the centre instead of chasing over the edge
+        pos = position(self.env.prev)
+        near_edge = False
+        if pos is not None and self.env.task.sky:
+            dx, dz = self.env.origin[0] - pos[0], self.env.origin[2] - pos[2]
+            if math.hypot(dx, dz) > self.R - 1.5:
+                near_edge = True
+                tyaw, tpitch = math.degrees(math.atan2(-dx, dz)), 10.0
+        dyaw, dpitch = wrap(tyaw - yaw0), tpitch - pitch0
         # human-like turning: proportional, capped at VPT's 10 degrees per tick, a little noise
         cy = float(np.clip(0.6 * dyaw + self.rng.gauss(0, 0.6), -10, 10))
         cp = float(np.clip(0.6 * dpitch + self.rng.gauss(0, 0.4), -10, 10))
         a["camera"] = np.array([cp, cy])  # VPT order: [pitch, yaw]
         aimed = abs(dyaw) < 12 and abs(dpitch) < 15
         a["forward"] = 1
-        a["sprint"] = 1 if abs(dyaw) < 45 else 0
+        a["sprint"] = 1 if abs(dyaw) < 45 and not near_edge and self.R >= 5 else 0
+        if near_edge and abs(dyaw) > 60:
+            a["forward"] = 0  # turn first, then walk back in
         if self.t % 40 == 0:
             self.strafe = self.rng.choice([0, 0, -1, 1])
-        if self.strafe and aimed:
+        if self.strafe and aimed and not near_edge:
             a["left" if self.strafe < 0 else "right"] = 1
-        if self.rng.random() < 0.04:
+        if self.rng.random() < 0.04 and not near_edge:
             a["jump"] = 1
         if aimed and self.t - self.last_swing >= 11:  # about the 1.9 sword cooldown at 20 Hz
             a["attack"] = 1
