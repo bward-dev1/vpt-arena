@@ -10,7 +10,7 @@ permissions:
 jobs:
   eval:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
@@ -40,13 +40,19 @@ jobs:
       - name: Weights
         run: |
           mkdir -p w
-          if [ "${{ inputs.tag }}" = "baseline" ]; then
-            curl -sfL -o w/global.weights https://openaipublic.blob.core.windows.net/minecraft-rl/models/foundation-model-1x.weights
-          else
-            gh release download "${{ inputs.tag }}" -p global.weights -D w
-          fi
+          B=https://openaipublic.blob.core.windows.net/minecraft-rl/models
+          case "${{ inputs.tag }}" in
+            baseline) curl -sfL -o w/global.weights $B/foundation-model-1x.weights; ARCH=1x ;;
+            openai-2x) curl -sfL -o w/global.weights $B/foundation-model-2x.weights; ARCH=2x ;;
+            openai-3x) curl -sfL -o w/global.weights $B/foundation-model-3x.weights; ARCH=3x ;;
+            openai-rl-2x) curl -sfL -o w/global.weights $B/rl-from-early-game-2x.weights; ARCH=2x ;;
+            scratch-*) gh release download "${{ inputs.tag }}" -p global.weights -D w; ARCH=small ;;
+            *) gh release download "${{ inputs.tag }}" -p global.weights -D w; ARCH=1x ;;
+          esac
+          echo "ARCH=$ARCH" >> $GITHUB_ENV
+          ls -la w
       - name: Evaluate
-        run: xvfb-run -a -s "-screen 0 1024x768x24" python cloud/eval_job.py --weights w/global.weights --name "${{ inputs.tag }}" --arch "$( [[ '${{ inputs.tag }}' == scratch-* ]] && echo small || echo 1x )" --modes "${{ matrix.modes }}" --episodes "${{ inputs.episodes }}" --out eval --clips clips
+        run: xvfb-run -a -s "-screen 0 1024x768x24" python cloud/eval_job.py --weights w/global.weights --name "${{ inputs.tag }}" --arch "$ARCH" --max-minutes 105 --modes "${{ matrix.modes }}" --episodes "${{ inputs.episodes }}" --out eval --clips clips
       - uses: actions/upload-artifact@v4
         with: {name: "eval-${{ strategy.job-index }}", path: "eval\nclips"}
   publish:
@@ -70,9 +76,14 @@ jobs:
           print(len(res["modes"]), "modes evaluated")
           EOF
           TAG="${{ inputs.tag }}"
-          if [ "$TAG" = "baseline" ]; then
-            gh release view baseline >/dev/null 2>&1 || gh release create baseline --title "Baseline: VPT foundation 1x" --notes "Evaluation of the unmodified VPT foundation 1x model on all modes." --prerelease
-          fi
+          case "$TAG" in
+            baseline) T="Baseline: VPT foundation 1x"; N="Evaluation of the unmodified VPT foundation 1x model on all modes." ;;
+            openai-2x) T="OpenAI VPT foundation 2x"; N="OpenAI's released 2x foundation model (no arena training), evaluated on all modes." ;;
+            openai-3x) T="OpenAI VPT foundation 3x"; N="OpenAI's largest released foundation model (3x, no arena training), evaluated on all modes." ;;
+            openai-rl-2x) T="OpenAI VPT RL early-game 2x"; N="OpenAI's final released RL model (2x, RL-tuned for the diamond tech tree), evaluated on all modes." ;;
+            *) T="" ;;
+          esac
+          if [ -n "$T" ]; then gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$T" --notes "$N" --prerelease; fi
           gh release upload "$TAG" eval.json --clobber
           CLIPS=$(find art -name "*.mp4" | head -60)
           if [ -n "$CLIPS" ]; then

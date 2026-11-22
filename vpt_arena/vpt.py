@@ -158,6 +158,8 @@ def load_weights(model, path, device="cpu"):
     sd = th.load(path, map_location=device, weights_only=True)
     if isinstance(sd, dict) and "policy" in sd and isinstance(sd["policy"], dict):
         sd = sd["policy"]
+    # OpenAI's RL checkpoints carry an auxiliary value head used only during their RL training
+    sd = {k: v for k, v in sd.items() if not k.startswith("aux_value_head.")}
     if not any("diff_obs_process" in k for k in model.state_dict()):
         # an unconditioned model (e.g. the KL prior) loading a conditioned checkpoint: drop the conditioner
         sd = {k: v for k, v in sd.items() if "diff_obs_process" not in k}
