@@ -1,0 +1,1 @@
+{"job": "r2-w10", "state": "running", "round": 2, "modes": ["kitpvp", "spleef"], "started": 1795309858.3826587, "iter": 5, "env_steps": 400, "fps": 12.9, "per_mode": {"spleef": {"episodes": 1, "return": -4.684, "win_rate": 0.0, "difficulty": 0.6}}, "minutes_left": 147.2, "updated": 1795310028.9885585}
