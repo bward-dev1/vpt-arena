@@ -1,5 +1,6 @@
 """Download trailer release mp4s to a temp dir (deleted afterwards) and write them to Workers KV.
   python3 tools/publish_trailer.py              hype cut: release `trailer`   -> trailer:main (30 fps), trailer:main60 (60 fps), trailer:vertical
+  python3 tools/publish_trailer.py --theatrical theatrical cut: release `trailer-theatrical` -> trailer:theatrical (30 fps), trailer:theatrical60 (60 fps, if made)
   python3 tools/publish_trailer.py --cinematic  cinematic cut: release `trailer-cinematic` -> trailer:cinematic (30 fps), trailer:cinematic60 (60 fps)
 Needs the Cloudflare creds that tools/sim_relay.py's KV class reads from env."""
 import shutil
@@ -15,12 +16,14 @@ from sim_relay import KV, REPO  # noqa: E402
 CUTS = {
     "hype": ("trailer", {"trailer-30.mp4": "trailer:main", "trailer-60.mp4": "trailer:main60", "trailer-vertical.mp4": "trailer:vertical"}),
     "cinematic": ("trailer-cinematic", {"trailer-cinematic-30.mp4": "trailer:cinematic", "trailer-cinematic-60.mp4": "trailer:cinematic60"}),
+    "theatrical": ("trailer-theatrical", {"trailer-theatrical-30.mp4": "trailer:theatrical", "trailer-theatrical-60.mp4": "trailer:theatrical60"}),
 }
 LIMIT = 24 * 1000 * 1000  # keep under the KV value limit used for clips
 
 
 def main():
-    tag, keys = CUTS["cinematic" if "--cinematic" in sys.argv else "hype"]
+    cut = "theatrical" if "--theatrical" in sys.argv else "cinematic" if "--cinematic" in sys.argv else "hype"
+    tag, keys = CUTS[cut]
     tmp = Path(tempfile.mkdtemp(prefix="trailer-"))
     try:
         subprocess.run(["gh", "release", "download", tag, "-R", REPO, "-D", str(tmp), "--clobber"] + sum((["-p", n] for n in keys), []), check=True)

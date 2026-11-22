@@ -34,6 +34,8 @@ VERCEL_JSON = {
         {"source": "/trailer-vertical.mp4", "destination": f"{BACKEND}/trailer-vertical.mp4"},
         {"source": "/trailer-60.mp4", "destination": f"{BACKEND}/trailer-60.mp4"},
         {"source": "/trailer-cinematic.mp4", "destination": f"{BACKEND}/trailer-cinematic.mp4"},
+        {"source": "/trailer-theatrical.mp4", "destination": f"{BACKEND}/trailer-theatrical.mp4"},
+        {"source": "/trailer-theatrical-60.mp4", "destination": f"{BACKEND}/trailer-theatrical-60.mp4"},
         {"source": "/trailer-cinematic-60.mp4", "destination": f"{BACKEND}/trailer-cinematic-60.mp4"},
         {"source": "/clips60/:path*", "destination": f"{BACKEND}/clips60/:path*"},
     ],
