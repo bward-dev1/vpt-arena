@@ -1,0 +1,1 @@
+{"job": "s0-s02", "state": "running", "round": 0, "modes": ["duels_sumo", "duels_boxing", "duels_bow", "duels_combo"], "started": 1795308488.7800756, "iter": 5, "env_steps": 800, "fps": 44.7, "per_mode": {}, "minutes_left": 147.1, "updated": 1795308664.7536738}
