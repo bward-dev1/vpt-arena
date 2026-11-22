@@ -9,6 +9,9 @@ on:
       run:
         description: "probe or shoot"
         default: "probe"
+      sizes:
+        description: "probe sizes (comma list of 360p,1080p,2160p)"
+        default: "360p,1080p,2160p"
       max_minutes:
         description: "time cap per machine for the shoot"
         default: "100"
@@ -51,7 +54,7 @@ jobs:
           lscpu | grep -E "Model name|^CPU\(s\)"; free -g | head -2
       - name: Probe
         run: |
-          xvfb-run -a -s "-screen 0 3840x2160x24" python cloud/footage.py probe --out probe --weights round-4:1x:w/round-4.weights
+          xvfb-run -a -s "-screen 0 3840x2160x24" python cloud/footage.py probe --out probe --sizes ${{ inputs.sizes }} --weights round-4:1x:w/round-4.weights
           D=$(python -c "from minestudio.utils import get_mine_studio_dir as g; print(g())")
           echo "--- options after our patch"; grep -E "tutorialStep|graphicsMode|renderDistance|guiScale|ao:|renderClouds" "$D/runtime/options.txt" || true
       - uses: actions/upload-artifact@v4

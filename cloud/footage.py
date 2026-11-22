@@ -175,6 +175,8 @@ def probe(args):
     out.mkdir(parents=True, exist_ok=True)
     res = {"cpus": os.cpu_count()}
     for label, size, look in (("360p", (640, 360), ""), ("1080p", (1920, 1080), "cine"), ("2160p", (3840, 2160), "cine")):
+        if args.sizes and label not in args.sizes.split(","):
+            continue
         try:
             env = ArenaSimEnv("duels_sword", seed=3, render_size=size, look=look)
             t = time.time()
@@ -202,6 +204,12 @@ def probe(args):
                         _, _, _, _, info = env.sim.step(env._noop())
                     cv2.imwrite(str(out / f"probe-dolly-{i}.jpg"), cv2.cvtColor(info["pov"], cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 90])
                 env._cmd("/gamemode survival")
+            for root, _, files in os.walk("/tmp/MineStudio"):  # which options.txt the game really reads
+                for fn in files:
+                    if fn in ("options.txt", "optionsof.txt"):
+                        pth = os.path.join(root, fn)
+                        keys = [ln for ln in open(pth).read().splitlines() if ln.split(":")[0] in ("tutorialStep", "graphicsMode", "guiScale", "renderDistance", "ao", "renderClouds")]
+                        print("[options]", pth, keys, flush=True)
             env.close()
         except Exception as e:
             res[label] = {"error": f"{type(e).__name__}: {str(e)[:300]}"}
@@ -233,5 +241,6 @@ if __name__ == "__main__":
     ap.add_argument("--weights", default="")
     ap.add_argument("--max-minutes", type=float, default=80)
     ap.add_argument("--difficulty", type=float, default=0.5)
+    ap.add_argument("--sizes", default="", help="probe only: comma list of 360p,1080p,2160p")
     a = ap.parse_args()
     shoot(a) if a.cmd == "shoot" else probe(a)

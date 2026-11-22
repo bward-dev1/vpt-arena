@@ -164,7 +164,9 @@ def main():
         open(d + "/options.txt", "w").write("guiScale:2\ntutorialStep:movement\ngraphicsMode:1\n")
         sim_env.patch_options(dict(sim_env.BASE_OPTIONS, **sim_env.CINE_OPTIONS), runtime_dir=d)
         txt = open(d + "/options.txt").read().splitlines()
-        assert "tutorialStep:none" in txt and "graphicsMode:2" in txt and "guiScale:2" in txt and "ao:2" in txt, txt
+        assert "tutorialStep:none" in txt and "graphicsMode:1" in txt and "guiScale:2" in txt and "ao:2" in txt, txt
+        sim_env.patch_options({"tutorialStep": "none"}, {"ofClouds": "2"}, runtime_dir=d)  # a file the engine did not ship is created
+        assert open(d + "/optionsof.txt").read().strip() == "ofClouds:2"
     sim = FakeSim()
     ArenaSimEnv("duels_sword", sim=sim).reset()
     assert "/recipe give @p *" in sim.env.cmds, sim.env.cmds[:12]

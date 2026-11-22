@@ -28,10 +28,10 @@ CURRICULUM = {
 # Always: no tutorial hints ("Find a tree", "Hold down Left Button"). The recipe-book toast is handled with /recipe give in _reset.
 BASE_OPTIONS = {"tutorialStep": "none"}
 # Footage look (VPT_LOOK=cine): fancy graphics, smooth lighting, clouds, longer view. Only for recording; training and eval keep the stock look.
-CINE_OPTIONS = {"graphicsMode": "2", "ao": "2", "renderClouds": "true", "renderDistance": "12", "biomeBlendRadius": "5",
-                "entityShadows": "true", "mipmapLevels": "4", "particles": "0"}
+CINE_OPTIONS = {"graphicsMode": "1", "ao": "2", "renderClouds": "true", "renderDistance": "12", "biomeBlendRadius": "5",
+                "entityShadows": "true", "mipmapLevels": "4", "particles": "0"}  # graphicsMode 1 = fancy (2 is fabulous, which software GL may not run)
 CINE_OPTIONS_OF = {"ofClouds": "2", "ofTrees": "2", "ofSmoothWorld": "true"}
-CINE_TIME = "/time set 400"  # low sun, warm light (doDaylightCycle is off, so it stays)
+CINE_TIME = "/time set 11800"  # sun at the horizon, warm sky, still bright (doDaylightCycle is off, so it stays)
 
 
 def patch_options(overrides, overrides_of=None, runtime_dir=None):
@@ -47,9 +47,10 @@ def patch_options(overrides, overrides_of=None, runtime_dir=None):
         return touched
     for name, over in (("options.txt", overrides), ("optionsof.txt", overrides_of or {})):
         path = os.path.join(d, name)
-        if not over or not os.path.exists(path):
+        if not over:
             continue
-        lines = open(path).read().splitlines()
+        os.makedirs(d, exist_ok=True)
+        lines = open(path).read().splitlines() if os.path.exists(path) else []
         seen, out = set(), []
         for ln in lines:
             k = ln.split(":", 1)[0]
@@ -156,9 +157,11 @@ class ArenaSimEnv:
         from minestudio.simulator import MinecraftSim
         import minestudio.simulator.entry as entry
         cine = self.look == "cine"
-        patch_options(dict(BASE_OPTIONS, **(CINE_OPTIONS if cine else {})), CINE_OPTIONS_OF if cine else None)
-        # HUD scale follows the render size (1 at 640x360), so the agent's downsampled view keeps the HUD it was trained with
         scale = max(1, round(self.render_size[0] / 640))
+        opts = dict(BASE_OPTIONS, **(CINE_OPTIONS if cine else {}))
+        if scale > 1:  # HUD scale follows the render size, so the agent's downsampled view keeps the HUD proportion it knows
+            opts["guiScale"] = str(scale)
+        patch_options(opts, CINE_OPTIONS_OF if cine else None)
         orig = entry.HumanSurvival
 
         class _HS(orig):
