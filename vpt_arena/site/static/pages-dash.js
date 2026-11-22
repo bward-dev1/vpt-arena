@@ -93,7 +93,7 @@ async function fillCurves(card, job) {
 
 function prevRelease(r, idx) {
   const t = r.rounds[idx].tag, n = rnum(t);
-  if (t === "baseline") return null;
+  if (t === "baseline" || isOpenai(t)) return null;
   if (/^scratch-/.test(t)) return n > 0 ? r.rounds.find(x => x.tag === "scratch-" + (n - 1)) || null : null;
   return r.rounds.find(x => x.tag === (n > 0 ? "round-" + (n - 1) : "baseline")) || null;
 }
@@ -107,7 +107,14 @@ function evalTable(r, mm, relIdx) {
   const dl = v => v == null ? "-" : `<span class="${v >= 0 ? "posc" : "negc"}">${v >= 0 ? "+" : ""}${fmt(v, 3)}</span>`;
   return `<div class="tw"><table class="evt"><thead><tr>${th("mode", "Mode")}${th("ep", "Episodes", 1)}${th("wins", "Wins", 1)}${th("wr", "Win rate", 1)}${th("ret", "Mean return", 1)}${th("dw", "Win rate vs " + (prev ? prev.tag : "previous"), 1)}${th("dr", "Return vs " + (prev ? prev.tag : "previous"), 1)}</tr></thead><tbody>
   ${rows.map(x => `<tr><td><a href="#/modes/${encodeURIComponent(x.k)}">${modeIcon(x.k, 16)} ${esc(x.name)}</a></td><td class="n">${x.ep}</td><td class="n">${x.wins}</td><td class="n"><b>${pct(x.wr)}</b></td><td class="n">${fmt(x.ret, 3)}</td><td class="n">${dl(x.dw)}</td><td class="n">${dl(x.dr)}</td></tr>`).join("") || `<tr><td colspan="7" class="empty">No evaluated modes for this release${dashMode ? " and mode" : ""}.</td></tr>`}
-  </tbody></table></div>`;
+  ${refRows(r, relIdx)}</tbody></table></div>`;
+}
+/* summary rows: the selected release, then each reference model (the baseline and OpenAI's released ones) */
+function refRows(r, relIdx) {
+  const sum = x => { const v = Object.values(x.modes); return { ep: v.reduce((a, q) => a + (q.episodes || 0), 0), wins: v.reduce((a, q) => a + (q.wins || 0), 0), eps: [...new Set(v.map(q => q.episodes))] }; };
+  const row = (x, cls, label) => { const s = sum(x); return `<tr class="refrow ${cls}"><td>${label}</td><td class="n">${s.ep}${s.eps.length === 1 && s.eps[0] !== 3 ? ` <em class="ep">n=${s.eps[0]}/mode</em>` : ""}</td><td class="n">${s.wins}</td><td class="n"><b>${pct(x.mean_win_rate)}</b></td><td class="n">${fmt(x.mean_return, 3)}</td><td class="n">-</td><td class="n">-</td></tr>`; };
+  const refs = r.rounds.filter(x => x.tag === "baseline" || isOpenai(x.tag));
+  return row(r.rounds[relIdx], "sel", `Mean over all modes, <b>${esc(r.rounds[relIdx].tag)}</b>`) + refs.filter(x => x !== r.rounds[relIdx]).map(x => row(x, "ref", `Reference: <b>${esc(x.tag)}</b>${isOpenai(x.tag) ? " (OpenAI, released)" : " (unmodified VPT)"}`)).join("");
 }
 function modeCharts(r, mm) {
   const keys = Object.keys(mm).filter(k => r.rounds.some(x => x.modes[k])).filter(k => !dashMode || k === dashMode);
@@ -139,7 +146,7 @@ pages.dashboard = async () => {
     const st = mkState();
     const totalNow = st.cur.reduce((a, x) => a + (x.env_steps || 0), 0), fpsv = st.running.filter(x => x.fps != null);
     const frames = (fr && fr.frames) || [];
-    if (dashRel == null || dashRel >= r.rounds.length) dashRel = Math.max(0, r.rounds.length - 1);
+    if (dashRel == null || dashRel >= r.rounds.length) { const ix = r.rounds.map((x, i) => /^round-\d+$/.test(x.tag) ? i : -1).filter(i => i >= 0); dashRel = ix.length ? ix[ix.length - 1] : Math.max(0, r.rounds.length - 1); }
     const modesPresent = Object.keys(mm);
     const trackWorkers = trk => { const ws = w.workers.filter(x => (x.track || "vpt") === trk && x.round != null), top = ws.length ? Math.max(...ws.map(x => x.round)) : null; return ws.filter(x => x.round === top).filter(x => !dashMode || x.modes.includes(dashMode) || x.per_mode[dashMode]); };
     const sc = w.workers.filter(x => x.track === "scratch" && x.round != null), scTop = sc.length ? Math.max(...sc.map(x => x.round)) : null, scCur = sc.filter(x => x.round === scTop), scRun = scCur.filter(x => x.state === "running");
@@ -171,7 +178,7 @@ pages.dashboard = async () => {
     <h2 class="kick">Releases compared</h2>${meanChart(vptRounds())}
     <div class="toolbar" style="margin-top:14px"><span class="seg"><button class="chip ${dashMetric === "win_rate" ? "on" : ""}" data-metric="win_rate">Win rate</button><button class="chip ${dashMetric === "return" ? "on" : ""}" data-metric="return">Return</button></span><span class="upd" style="margin:0">per mode, across releases. Click a mode to filter.</span></div>
     ${modeCharts(vptRounds(), mm)}
-    <h2 class="kick">VPT against from scratch</h2><div id="cmpbox">${compareHtml(r, mm)}</div>
+    <h2 class="kick">Ours, from scratch and OpenAI</h2><div id="cmpbox">${compareHtml(r, mm)}</div>
     <h2 class="kick">Evaluation table</h2>
     ${r.rounds.length ? `<div class="scrub"><label for="relr">Release</label><input id="relr" type="range" min="0" max="${r.rounds.length - 1}" step="1" value="${dashRel}" aria-valuetext="${esc(r.rounds[dashRel].tag)}"><b id="relname">${esc(r.rounds[dashRel].tag)}</b><span class="upd" style="margin:0">drag to compare releases, both tracks included; the change columns show the difference from the same track's release before</span></div><div id="evalslot">${evalTable(r, mm, dashRel)}</div>` : `<div class="empty">No release has been evaluated yet.</div>`}
     <p class="upd">Snapshot ${o.cloud && o.cloud.updated ? "of the cloud status from " + when(o.cloud.updated) : "has no cloud status yet"}. ${STATIC ? "This page refreshes about once a minute." : ""}</p>`;

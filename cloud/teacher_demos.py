@@ -124,6 +124,10 @@ def record_episode(env, mode, out_dir, rng, max_steps):
         ret += r
         won = won or bool(info.get("won"))
         n += 1
+        if n <= 14 or done:
+            print(json.dumps({"dbg": mode, "n": n, "pos": info.get("pos"), "origin": [round(v, 1) for v in env.origin],
+                              "cause": info.get("death_cause"), "cam": [round(float(x), 1) for x in a["camera"]],
+                              "atk": a["attack"]}), flush=True)
     writer.release()
     Path(str(stem) + ".jsonl").write_text("\n".join(lines) + "\n")
     meta = dict(mode=mode, source="teacher", weight=1.0, loss_weight=1.0, won=won, ret=round(ret, 2), frames=len(lines))

@@ -374,7 +374,7 @@ class TracksTest(unittest.TestCase):
             (runs / job).mkdir(parents=True)
             (runs / job / "status.json").write_text(json.dumps({"job": job, "state": "running", "round": rnd, "modes": ["duels_sword"], "updated": time.time(),
                                                                "per_mode": {"duels_sword": {"episodes": 2, "return": 1.0, "win_rate": 0.5, "difficulty": 0.45}}}))
-        players = {t: {"elo": 1000, "games": 3, "wins": 1, "kind": "checkpoint", "by_mode": {"duels_sword": 1000}} for t in ("scratch-1", "round-0", "scratch-0", "baseline")}
+        players = {t: {"elo": 1000, "games": 3, "wins": 1, "kind": "checkpoint", "by_mode": {"duels_sword": 1000}} for t in ("scratch-1", "openai-3x", "round-0", "openai-rl-2x", "scratch-0", "baseline", "openai-2x")}
         matches = [{"t": i, "mode": "duels_sword", "a": t, "b": "arena-bots", "winner": None, "score": "1/3 wins, return -1.0"} for i, t in enumerate(players)]
         (runs / "league.json").write_text(json.dumps({"players": players, "matches": matches}))
         self.a = Arena(self.tmp)
@@ -391,12 +391,12 @@ class TracksTest(unittest.TestCase):
 
     def test_release_order_and_tracks(self):
         r = self.a.api_rounds()["rounds"]
-        self.assertEqual([x["tag"] for x in r], ["baseline", "round-0", "scratch-0", "scratch-1"])
-        self.assertEqual([x["track"] for x in r], ["vpt", "vpt", "scratch", "scratch"])
+        self.assertEqual([x["tag"] for x in r], ["baseline", "openai-rl-2x", "openai-2x", "openai-3x", "round-0", "scratch-0", "scratch-1"])
+        self.assertEqual([x["track"] for x in r], ["vpt", "openai", "openai", "openai", "vpt", "scratch", "scratch"])
 
     def test_scratch_not_offered_to_simulation_lab(self):
         from tools import publish_site as ps
-        tags = ps.model_tags({"cloud": {"releases": ["round-0", "scratch-0"]}, "rounds": {"rounds": [{"tag": "baseline"}, {"tag": "scratch-1"}]}})
+        tags = ps.model_tags({"cloud": {"releases": ["round-0", "scratch-0", "openai-2x"]}, "rounds": {"rounds": [{"tag": "baseline"}, {"tag": "scratch-1"}, {"tag": "openai-3x"}]}})
         self.assertEqual(tags, ["round-0", "baseline"])
         spec = ps.load_sim_spec()
         out, errs = ps.validate_spec({"model": "scratch-0"}, spec, ["baseline", "latest", "round-0"])

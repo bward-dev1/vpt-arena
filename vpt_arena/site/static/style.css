@@ -418,3 +418,11 @@ code{overflow-wrap:anywhere}
 .cmp-b{display:grid;gap:3px}.cb{position:relative;height:13px;background:var(--panel2);border-radius:4px;overflow:hidden}
 .cb i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;transition:width .6s}.cb i.v{background:var(--accent)}.cb i.s{background:var(--accent2)}
 .cb span{position:absolute;right:6px;top:-2px;font-size:.7rem;color:var(--text);font-variant-numeric:tabular-nums;text-shadow:0 0 3px var(--panel)}
+
+.cmp-head{font-size:1.05rem;margin:.2em 0 .3em}.cmp-head b{font-variant-numeric:tabular-nums}
+em.ep,em.tg{font-style:normal;font-size:.68rem;padding:0 5px;border-radius:99px;border:1px solid var(--line2);color:var(--muted);background:var(--panel);margin-right:4px}
+em.tg{color:var(--accent2)}
+.th-sub{display:block;font-size:.62rem;font-weight:500;color:var(--faint);letter-spacing:.04em}
+tr.refrow td{background:var(--panel2);font-size:.88rem}tr.refrow.sel td{border-top:1px solid var(--line2)}tr.refrow.ref td{color:var(--muted)}
+.cmp-b .cb span{display:flex;align-items:center}
+[hidden]{display:none!important}

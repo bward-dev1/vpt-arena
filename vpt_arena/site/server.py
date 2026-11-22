@@ -57,9 +57,16 @@ def read_jsonl(path):
     return rows
 
 
+OPENAI_ORDER = ["openai-rl-2x", "openai-2x", "openai-3x"]
+
+
 def track_of(tag):
-    """Which training track a release or job belongs to: the VPT track (baseline, round-N, r* jobs) or from-scratch (scratch-N, s* jobs)."""
-    return "scratch" if re.match(r"^(scratch-\d+$|s\d+-)", str(tag)) else "vpt"
+    """Which track a release or job belongs to: vpt (baseline, round-N, r* jobs), scratch (scratch-N, s* jobs)
+    or openai (OpenAI's released models, evaluated as references)."""
+    t = str(tag)
+    if t.startswith("openai-"):
+        return "openai"
+    return "scratch" if re.match(r"^(scratch-\d+$|s\d+-)", t) else "vpt"
 
 
 TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -448,12 +455,14 @@ class Arena:
                                            "win_rate": int(mt.group(1)) / n if n else None, "return": float(mt.group(3))}
         def order(t):
             if t == "baseline":
-                return (0, -1, t)
+                return (0, 0, t)
+            if t.startswith("openai-"):
+                return (1, OPENAI_ORDER.index(t) if t in OPENAI_ORDER else 99, t)
             mt = re.match(r"^round-(\d+)$", t)
             if mt:
-                return (0, int(mt.group(1)), t)
+                return (2, int(mt.group(1)), t)
             ms = re.match(r"^scratch-(\d+)$", t)
-            return (1, int(ms.group(1)), t) if ms else (2, 0, t)
+            return (3, int(ms.group(1)), t) if ms else (4, 0, t)
         rounds = []
         for tag in sorted(tags, key=order):
             per = {mode: v | {"elo": tags[tag]["by_mode"].get(mode)} for (t, mode), v in latest.items() if t == tag}

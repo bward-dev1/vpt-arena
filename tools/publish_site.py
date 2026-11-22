@@ -915,7 +915,7 @@ def model_tags(snap):
     tags = list(snap.get("cloud", {}).get("releases") or []) + [r["tag"] for r in snap.get("rounds", {}).get("rounds", [])]
     seen, out = set(), []
     for t in tags:
-        if t.startswith("scratch-"):
+        if t.startswith(("scratch-", "openai-")):
             continue          # the Simulation Lab can only run the 1x round-N models for now
         if t not in seen:
             seen.add(t)

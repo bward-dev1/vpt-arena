@@ -307,6 +307,7 @@ class ArenaSimEnv:
         fell = settled and t.sky and p is not None and p[1] < self.origin[1] - 8
         respawned = settled and p is not None and t.sky and math.hypot(p[0] - self.origin[0], p[2] - self.origin[2]) > 60
         died = hp <= 0 or fell or respawned or bool(term)
+        cause = "hp0" if hp <= 0 else "fell" if fell else "respawned" if respawned else "sim_done" if term else None
         won = False
         if died:
             r += w["death"]
@@ -341,7 +342,9 @@ class ArenaSimEnv:
         self.prev = info
         self.ret += r
         return obs["image"], float(r), bool(done), {"won": won, "died": died, "events": ev, "mode": self.mode,
-                                                   "difficulty": round(self.difficulty, 2)}
+                                                   "difficulty": round(self.difficulty, 2),
+                                                   "death_cause": cause if died else None,
+                                                   "pos": [round(v, 1) for v in p] if p else None}
 
     def close(self):
         try:

@@ -3,43 +3,76 @@
 const isRound = t => /^round-\d+$/.test(t);
 function releaseTags(r) { return r.rounds.map(x => x.tag); }
 /* per release values for one mode: [{tag, win_rate, return, episodes}] in release order */
-const isVpt = t => !/^scratch-/.test(t);
+const isVpt = t => !/^(scratch|openai)-/.test(t);
+const isOpenai = t => /^openai-/.test(t);
 const rnum = t => { const x = /^(?:round|scratch)-(\d+)$/.exec(t); return x ? +x[1] : null; };
 function modeHistory(r, key) { return r.rounds.filter(x => isVpt(x.tag)).map(x => ({ tag: x.tag, ...(x.modes[key] || { win_rate: null, return: null, episodes: 0 }) })); }
 
-/* ---------- VPT vs from-scratch ---------- */
-let cmpMetric = "win_rate";
+/* ---------- comparisons: ours against OpenAI's released models and against the from-scratch track ---------- */
+let cmpMetric = "win_rate", cmpView = null;
 function compareData(r) {
-  const vpt = r.rounds.filter(x => /^round-\d+$/.test(x.tag)), sc = r.rounds.filter(x => /^scratch-\d+$/.test(x.tag));
+  const vpt = r.rounds.filter(x => /^round-\d+$/.test(x.tag)), sc = r.rounds.filter(x => /^scratch-\d+$/.test(x.tag)), oa = r.rounds.filter(x => isOpenai(x.tag));
   const vn = new Map(vpt.map(x => [rnum(x.tag), x])), sn = new Map(sc.map(x => [rnum(x.tag), x]));
   const common = [...vn.keys()].filter(n => sn.has(n)).sort((a, b) => b - a);
-  if (common.length) return { vpt, sc, a: vn.get(common[0]), b: sn.get(common[0]), same: true };
-  return { vpt, sc, a: vpt[vpt.length - 1] || null, b: sc[sc.length - 1] || null, same: false };
+  const ours = vpt[vpt.length - 1] || null;
+  if (common.length) return { vpt, sc, oa, ours, a: vn.get(common[0]), b: sn.get(common[0]), same: true };
+  return { vpt, sc, oa, ours, a: ours, b: sc[sc.length - 1] || null, same: false };
+}
+/* for each mode, the OpenAI release with the highest win rate there (return breaks ties) */
+function openaiBest(oa, f) {
+  const per = {};
+  oa.forEach(rel => Object.entries(rel.modes).forEach(([k, v]) => {
+    const cur = per[k];
+    const better = !cur || (f === "win_rate" ? (v.win_rate ?? -1) > (cur.v.win_rate ?? -1) || ((v.win_rate ?? -1) === (cur.v.win_rate ?? -1) && (v.return ?? -1e9) > (cur.v.return ?? -1e9)) : (v.return ?? -1e9) > (cur.v.return ?? -1e9));
+    if (better) per[k] = { tag: rel.tag, v };
+  }));
+  const overall = oa.filter(x => x.mean_win_rate != null).sort((x, y) => y.mean_win_rate - x.mean_win_rate)[0] || null;
+  return { per, overall };
+}
+function barRows(keys, mm, A, B, f, tagB) {
+  const vals = keys.flatMap(k => [A[k] && A[k][f], B[k] && B[k][f]]).filter(v => v != null);
+  const lo = f === "win_rate" ? 0 : Math.min(0, ...vals), hi = f === "win_rate" ? 1 : Math.max(...vals, lo + 1e-9);
+  const w = v => v == null ? 0 : Math.max(1, (v - lo) / (hi - lo) * 100), lab = v => v == null ? "-" : f === "win_rate" ? pct(v) : fmt(v, 3);
+  const ne = (x, y) => x && y && x.episodes !== y.episodes ? `<em class="ep" title="${x.episodes} episode(s) per mode for this one, ${y.episodes} for the other">n=${x.episodes}</em>` : "";
+  return `<div class="cmp">${keys.map(k => `<div class="cmp-row"><a href="#/modes/${encodeURIComponent(k)}">${modeIcon(k, 16)} ${esc(mm[k].name)}</a><div class="cmp-b"><div class="cb"><i class="v" style="width:${w(A[k] && A[k][f])}%"></i><span>${ne(A[k], B[k])} ${lab(A[k] && A[k][f])}</span></div><div class="cb"><i class="s" style="width:${w(B[k] && B[k][f])}%"></i><span>${tagB && tagB[k] ? `<em class="tg">${esc(tagB[k])}</em>` : ""}${ne(B[k], A[k])} ${lab(B[k] && B[k][f])}</span></div></div></div>`).join("")}</div>`;
 }
 function compareHtml(r, mm) {
   const c = compareData(r), f = cmpMetric;
-  const expl = `<p class="cmp-ex"><b>What differs:</b> the VPT track starts from OpenAI's VPT model, pretrained on about 70,000 hours of YouTube Minecraft video; the from-scratch track is a small policy of about 5 million parameters, the same architecture family, trained with no pretraining. <b>What is the same:</b> the arenas, the PPO training loop and the evaluation.</p>`;
+  if (!cmpView) cmpView = c.oa.length ? "openai" : "scratch";
+  const expl = `<p class="cmp-ex"><b>Three tracks.</b> <b>Ours (VPT)</b> starts from OpenAI's VPT model, pretrained on about 70,000 hours of YouTube Minecraft video. <b>From scratch</b> is a small policy of about 5 million parameters, the same architecture family, with no pretraining. <b>OpenAI (released)</b> are OpenAI's own final models, evaluated as references. All three use the same arenas and evaluation; ours and the from-scratch track also share the PPO training loop.</p>`;
   const labels = {}, s1 = [], s2 = [];
   c.vpt.forEach(x => { const n = rnum(x.tag); labels[n] = "round " + n; if (x.mean_win_rate != null) s1.push([n, x.mean_win_rate]); });
   c.sc.forEach(x => { const n = rnum(x.tag); labels[n] = "round " + n; if (x.mean_win_rate != null) s2.push([n, x.mean_win_rate]); });
-  const line = s1.length || s2.length ? multiChart({ "VPT (round-N)": s1, "From scratch (scratch-N)": s2 }, "Mean win rate per round for the VPT and from-scratch tracks", { xLabels: labels, yRange: [0, 1], yFmt: v => Math.round(v * 100) + "%" }) : `<div class="empty">Nothing evaluated yet.</div>`;
-  let bars = "";
-  if (!c.sc.length) bars = `<div class="empty">No from-scratch release has been evaluated yet. The per-mode comparison fills in after <code>scratch-0</code>.</div>`;
-  else if (!c.a || !c.b) bars = `<div class="empty">Waiting for a VPT release to compare against.</div>`;
-  else {
-    const keys = Object.keys(mm).filter(k => c.a.modes[k] || c.b.modes[k]);
-    const vals = keys.flatMap(k => [c.a.modes[k] && c.a.modes[k][f], c.b.modes[k] && c.b.modes[k][f]]).filter(v => v != null);
-    const lo = f === "win_rate" ? 0 : Math.min(0, ...vals), hi = f === "win_rate" ? 1 : Math.max(...vals, lo + 1e-9);
-    const w = v => v == null ? 0 : Math.max(1, (v - lo) / (hi - lo) * 100), lab = v => v == null ? "-" : f === "win_rate" ? pct(v) : fmt(v, 3);
-    bars = `<p class="upd" style="margin-top:0">${c.same ? `Both at round ${rnum(c.a.tag)}` : `Newest of each, <b>${esc(c.a.tag)}</b> and <b>${esc(c.b.tag)}</b> (no round number has both yet)`}: <b>${esc(c.a.tag)}</b> against <b>${esc(c.b.tag)}</b>. Mean win rate ${pct(c.a.mean_win_rate)} against ${pct(c.b.mean_win_rate)}.</p>
-    <div class="cmp-legend"><span><i style="background:var(--accent)"></i>VPT ${esc(c.a.tag)}</span><span><i style="background:var(--accent2)"></i>From scratch ${esc(c.b.tag)}</span></div>
-    <div class="cmp">${keys.map(k => `<div class="cmp-row"><a href="#/modes/${encodeURIComponent(k)}">${modeIcon(k, 16)} ${esc(mm[k].name)}</a><div class="cmp-b"><div class="cb"><i class="v" style="width:${w(c.a.modes[k] && c.a.modes[k][f])}%"></i><span>${lab(c.a.modes[k] && c.a.modes[k][f])}</span></div><div class="cb"><i class="s" style="width:${w(c.b.modes[k] && c.b.modes[k][f])}%"></i><span>${lab(c.b.modes[k] && c.b.modes[k][f])}</span></div></div></div>`).join("")}</div>`;
+  const ob = openaiBest(c.oa, "win_rate"), xs = Object.keys(labels).map(Number);
+  const series = { "VPT (round-N)": s1, "From scratch (scratch-N)": s2 };
+  if (ob.overall && xs.length) series["OpenAI best: " + ob.overall.tag] = xs.map(n => [n, ob.overall.mean_win_rate]);
+  const line = s1.length || s2.length || ob.overall ? multiChart(series, "Mean win rate per round for the three tracks", { xLabels: labels, yRange: [0, 1], yFmt: v => Math.round(v * 100) + "%" }) : `<div class="empty">Nothing evaluated yet.</div>`;
+  let head = "", bars = "";
+  if (cmpView === "openai") {
+    if (!c.oa.length) bars = `<div class="empty">No OpenAI model has been evaluated yet. The reference comparison appears once <code>openai-rl-2x</code>, <code>openai-2x</code> or <code>openai-3x</code> has results.</div>`;
+    else if (!c.ours) bars = `<div class="empty">No round of ours has been evaluated yet.</div>`;
+    else {
+      const best = openaiBest(c.oa, f), keys = Object.keys(mm).filter(k => c.ours.modes[k] || best.per[k]);
+      const B = Object.fromEntries(keys.map(k => [k, best.per[k] && best.per[k].v])), T = Object.fromEntries(keys.map(k => [k, best.per[k] && best.per[k].tag]));
+      const noisy = c.oa.filter(x => Object.values(x.modes).some(v => v.episodes !== 3));
+      head = `<p class="cmp-head">Ours vs OpenAI's best released model: <b>${pct(c.ours.mean_win_rate)}</b> vs <b>${ob.overall ? pct(ob.overall.mean_win_rate) : "-"}</b> wins</p><p class="upd" style="margin-top:0"><b>${esc(c.ours.tag)}</b> (ours) against <b>${ob.overall ? esc(ob.overall.tag) : "-"}</b>, the OpenAI model with the best mean win rate. The bars use the best OpenAI model in each mode, a harder bar, with its name shown.${noisy.length ? ` ${noisy.map(x => esc(x.tag)).join(", ")} ran fewer episodes per mode, so its numbers are noisier; modes where the counts differ are marked n=.` : ""}</p>`;
+      bars = `<div class="cmp-legend"><span><i style="background:var(--accent)"></i>Ours ${esc(c.ours.tag)}</span><span><i style="background:var(--accent2)"></i>OpenAI, best per mode</span></div>` + barRows(keys, mm, c.ours.modes, B, f, T);
+    }
+  } else {
+    if (!c.sc.length) bars = `<div class="empty">No from-scratch release has been evaluated yet. The per-mode comparison fills in after <code>scratch-0</code>.</div>`;
+    else if (!c.a || !c.b) bars = `<div class="empty">Waiting for a VPT release to compare against.</div>`;
+    else {
+      const keys = Object.keys(mm).filter(k => c.a.modes[k] || c.b.modes[k]);
+      head = `<p class="cmp-head">Ours vs from scratch: <b>${pct(c.a.mean_win_rate)}</b> vs <b>${pct(c.b.mean_win_rate)}</b> wins</p><p class="upd" style="margin-top:0">${c.same ? `Both at round ${rnum(c.a.tag)}` : `Newest of each, <b>${esc(c.a.tag)}</b> and <b>${esc(c.b.tag)}</b> (no round number has both yet)`}.</p>`;
+      bars = `<div class="cmp-legend"><span><i style="background:var(--accent)"></i>VPT ${esc(c.a.tag)}</span><span><i style="background:var(--accent2)"></i>From scratch ${esc(c.b.tag)}</span></div>` + barRows(keys, mm, c.a.modes, c.b.modes, f, null);
+    }
   }
-  return `${expl}<div class="grid cols-2"><div class="card chart"><h3>Mean win rate per round</h3>${line}</div><div class="card"><div class="toolbar" style="margin-top:0"><span class="seg"><button class="chip ${f === "win_rate" ? "on" : ""}" data-cm="win_rate">Win rate</button><button class="chip ${f === "return" ? "on" : ""}" data-cm="return">Return</button></span></div>${bars}</div></div>`;
+  return `${expl}<div class="grid cols-2"><div class="card chart"><h3>Mean win rate per round</h3>${line}</div><div class="card"><div class="toolbar" style="margin-top:0"><span class="seg"><button class="chip ${cmpView === "openai" ? "on" : ""}" data-cv="openai">Ours vs OpenAI</button><button class="chip ${cmpView === "scratch" ? "on" : ""}" data-cv="scratch">VPT vs from scratch</button></span><span class="seg"><button class="chip ${f === "win_rate" ? "on" : ""}" data-cm="win_rate">Win rate</button><button class="chip ${f === "return" ? "on" : ""}" data-cm="return">Return</button></span></div>${head}${bars}</div></div>`;
 }
 document.addEventListener("click", e => {
-  const b = e.target.closest && e.target.closest("[data-cm]"); if (!b || !window.__cmp) return;
-  cmpMetric = b.dataset.cm; const el = $("#cmpbox"); if (el) { el.innerHTML = compareHtml(window.__cmp.r, window.__cmp.mm); wireMulti(el); }
+  const b = e.target.closest && e.target.closest("[data-cm],[data-cv]"); if (!b || !window.__cmp) return;
+  if (b.dataset.cm) cmpMetric = b.dataset.cm; if (b.dataset.cv) cmpView = b.dataset.cv;
+  const el = $("#cmpbox"); if (el) { el.innerHTML = compareHtml(window.__cmp.r, window.__cmp.mm); wireMulti(el); }
 });
 function totalSteps(w) { return w.workers.reduce((a, x) => a + (x.env_steps || 0), 0); }
 
@@ -77,7 +110,7 @@ pages.overview = async () => {
     <div class="card"><div class="ficon">${pixelIcon("swords", 30)}</div><h3>One network, ${o.modes} modes</h3><p>A learned embedding for the mode, the combat ruleset (1.8 or 1.9+) and the team size tells the same network which game it is in.</p></div>
     <div class="card"><div class="ficon">${pixelIcon("cloud", 30)}</div><h3>Trained in public</h3><p>Each round runs 12 workers on GitHub Actions. Results, clips and failures are published here, round by round.</p></div>
   </div>
-  <h2 class="kick">VPT against from scratch</h2>
+  <h2 class="kick">Ours, from scratch and OpenAI</h2>
   <div id="cmpbox"></div>
   <h2 class="kick">Project phases</h2>
   <div class="tw"><table><thead><tr><th>Phase</th><th>What</th><th>Live status</th><th>Tested</th><th>State</th></tr></thead><tbody>
