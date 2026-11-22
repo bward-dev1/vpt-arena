@@ -1,1 +1,1 @@
-{"job": "r3-w08", "state": "running", "round": 3, "modes": ["skywars_solo", "skywars_doubles"], "started": 1795323414.0539575, "iter": 3, "env_steps": 240, "fps": 9.5, "per_mode": {}, "minutes_left": 147.2, "updated": 1795323582.5880888}
+{"job": "r3-w08", "state": "running", "round": 3, "modes": ["skywars_solo", "skywars_doubles"], "started": 1795323414.0539575, "iter": 22, "env_steps": 1760, "fps": 11.4, "per_mode": {"skywars_doubles": {"episodes": 1, "return": -4.325638145788829, "win_rate": 0.0, "difficulty": 0.75}}, "minutes_left": 144.0, "updated": 1795323775.8390164}
