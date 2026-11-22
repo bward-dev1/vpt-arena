@@ -13,13 +13,14 @@ const fmtM = (n: number) => (n / 1e6).toFixed(2);
 const SHAKES = [{t: 3.0, a: 10}, {t: 12.0, a: 16}, {t: 15.0, a: 18}, {t: 18.0, a: 22}, {t: 24.0, a: 40}, {t: 33.0, a: 20}, {t: 57.0, a: 18}, {t: 60.0, a: 22}, {t: 75.0, a: 56}, {t: 76.5, a: 64}];
 
 // ---- chunky chrome / steel title type ----
+const GRAD = {
+  red: 'linear-gradient(180deg,#fff 0%,#ffd8d0 28%,#d4483a 47%,#3d0b07 51%,#ff8e7c 74%,#ffd9d2 100%)',
+  gold: 'linear-gradient(180deg,#fffdf0 0%,#f6dd9a 30%,#c28a22 47%,#3a2406 51%,#f0bd5a 74%,#fff0c8 100%)',
+  steel: 'linear-gradient(180deg,#ffffff 0%,#dfe7ee 28%,#8996a4 46%,#232a32 51%,#9db0c2 70%,#eef5fb 100%)',
+};
 const chrome = (size: number, tint: 'steel' | 'red' | 'gold' = 'steel'): React.CSSProperties => ({
   fontFamily: anton.fontFamily, fontSize: size, lineHeight: 0.96, letterSpacing: '0.015em', textTransform: 'uppercase', textAlign: 'center',
-  background: tint === 'red'
-    ? 'linear-gradient(180deg,#fff 0%,#ffd8d0 28%,#d4483a 47%,#3d0b07 51%,#ff8e7c 74%,#ffd9d2 100%)'
-    : tint === 'gold'
-      ? 'linear-gradient(180deg,#fffdf0 0%,#f6dd9a 30%,#c28a22 47%,#3a2406 51%,#f0bd5a 74%,#fff0c8 100%)'
-      : 'linear-gradient(180deg,#ffffff 0%,#dfe7ee 28%,#8996a4 46%,#232a32 51%,#9db0c2 70%,#eef5fb 100%)',
+  background: GRAD[tint],
   WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', WebkitTextFillColor: 'transparent',
   filter: `drop-shadow(0 ${Math.max(2, size * 0.025)}px 0 rgba(0,0,0,0.85)) drop-shadow(0 0 ${size * 0.14}px ${tint === 'red' ? 'rgba(255,90,70,0.45)' : 'rgba(150,210,255,0.4)'})`,
 });
@@ -65,7 +66,7 @@ const Hit: React.FC<{at: number; children: React.ReactNode; size: number; tint?:
 
 // Slashed zero: Anton's 0 and O look alike at title sizes.
 const Zero0: React.FC<{tint: 'steel' | 'red' | 'gold'}> = ({tint}) => (
-  <span style={{position: 'relative', display: 'inline-block'}}>
+  <span style={{position: 'relative', display: 'inline-block', background: GRAD[tint], WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', WebkitTextFillColor: 'transparent'}}>
     0
     <span style={{position: 'absolute', left: '50%', top: '50%', width: '0.085em', height: '0.66em', transform: 'translate(-50%,-46%) rotate(32deg)', borderRadius: '0.02em',
       background: tint === 'red' ? 'linear-gradient(180deg,#ffd8d0,#d4483a 50%,#ff8e7c)' : tint === 'gold' ? 'linear-gradient(180deg,#fff0c8,#c28a22 50%,#f0bd5a)' : 'linear-gradient(180deg,#fff,#8996a4 50%,#eef5fb)'}} />
@@ -404,7 +405,7 @@ const End: React.FC<{P: P}> = ({P}) => {
       {t > 3.2 && (
         <div style={{position: 'absolute', left: 980, top: 165, width: 840, height: 472, opacity: ease((t - 3.2) / 1.0), boxShadow: '0 40px 100px rgba(0,0,0,0.85)', border: '1px solid rgba(233,228,216,0.35)', overflow: 'hidden', transform: `scale(${lerp(0.97, 1.02, ease((t - 3.2) / 5))})`}}>
           <At from={3.2} dur={6}>
-            <Shot c={live.c} start={live.at - 1.0} dur={6} ramp={[{at: 0, rate: 0.5}, {at: 6, rate: 0.5}]} push={[1.1, 1.14]} filter="contrast(1.12) saturate(1.05)" grade={0.6} />
+            <Shot c={live.c} start={live.at - 1.0} dur={6} ramp={[{at: 0, rate: 0.5}, {at: 6, rate: 0.5}]} push={[1.24, 1.28]} filter="contrast(1.12) saturate(1.05)" grade={0.6} />
           </At>
           <div style={{position: 'absolute', left: 22, top: 18, display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', background: 'rgba(0,0,0,0.6)', borderRadius: 4}}>
             <div style={{width: 16, height: 16, borderRadius: 8, background: '#ff3b30', opacity: blink, boxShadow: '0 0 12px #ff3b30'}} />
