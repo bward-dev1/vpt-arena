@@ -485,7 +485,7 @@ async function handle(request, env, url) {
   if (m) return serveVideo(request, env, "simclip60:" + m[1] + ":" + Number(m[2]));
   m = /^\/clips(60)?\/([A-Za-z0-9][A-Za-z0-9._-]{0,63})\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})\.mp4$/.exec(path);
   if (m) return serveVideo(request, env, (m[1] ? "clip60:" : "clip:") + m[2] + ":" + m[3]);
-  const TR = { "/trailer.mp4": "trailer:main", "/trailer-vertical.mp4": "trailer:vertical", "/trailer-60.mp4": "trailer:main60" };
+  const TR = { "/trailer.mp4": "trailer:main", "/trailer-vertical.mp4": "trailer:vertical", "/trailer-60.mp4": "trailer:main60", "/trailer-cinematic.mp4": "trailer:cinematic", "/trailer-cinematic-60.mp4": "trailer:cinematic60" };
   if (TR[path]) return serveVideo(request, env, TR[path]);
   return null;
 }
@@ -493,8 +493,8 @@ async function handle(request, env, url) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname === "/data.json") {
-      const body = await env.DATA.get(DATA_KEY, { cacheTtl: 60 });
+    if (url.pathname === "/data.json" || url.pathname === "/data-runs.json") {
+      const body = await env.DATA.get(url.pathname === "/data.json" ? DATA_KEY : "rundata", { cacheTtl: 60 });
       const h = { "content-type": "application/json; charset=utf-8", "x-content-type-options": "nosniff", "access-control-allow-origin": "*" };
       if (body === null) return new Response('{"error":"no data published yet"}', { status: 404, headers: { ...h, "cache-control": "no-store" } });
       return new Response(body, { headers: { ...h, "cache-control": "public, max-age=60" } });
@@ -520,7 +520,7 @@ def worker_js(spec):
             .replace("__VALIDATE__", VALIDATE_JS))
 
 
-ROUTES_JSON = json.dumps({"version": 1, "include": ["/data.json", "/api/*", "/clips/*", "/clips60/*", "/sims/*", "/live/*", "/trailer*"], "exclude": []})
+ROUTES_JSON = json.dumps({"version": 1, "include": ["/data.json", "/data-runs.json", "/api/*", "/clips/*", "/clips60/*", "/sims/*", "/live/*", "/trailer*"], "exclude": []})
 
 
 # --------------------------------------------------------------------------- snapshot
@@ -638,6 +638,18 @@ def _cap_workers(ws, per_track=48):
     return out
 
 
+def worker_totals(ws):
+    """Step counts over every worker that has ever reported (the list in the snapshot is capped, these are not)."""
+    by_round = {"vpt": {}, "scratch": {}}
+    for w in ws:
+        trk = w.get("track", "vpt")
+        if w.get("round") is not None and trk in by_round:
+            k = str(w["round"])
+            by_round[trk][k] = by_round[trk].get(k, 0) + int(w.get("env_steps") or 0)
+    per_track = {t: sum(v.values()) for t, v in by_round.items()}
+    return {"steps_total": sum(per_track.values()), "by_track": per_track, "by_round": by_round, "workers": len(ws)}
+
+
 def build_snapshot(root):
     a = PublicArena(root)
     runs = a.api_runs()["runs"][:MAX_RUNS]
@@ -663,10 +675,17 @@ def build_snapshot(root):
         "league": league,
         "cloud": a.api_cloud(),
         "rounds": a.api_rounds(),
-        "workers": {"workers": _cap_workers(a.api_workers()["workers"])},
+        "workers": {"workers": _cap_workers(a.api_workers()["workers"]), "totals": worker_totals(a.api_workers()["workers"])},
         "frames": build_frames(root, a.api_workers()["workers"]),
         "live": {"online": False, "age": None, "status": None, "frame": False, "now": time.time()},
     }
+
+
+def split_payloads(snap):
+    """data.json (everything the pages need at load) and data-runs.json (the per-run training charts, 1 MB+, fetched on demand)."""
+    core = {k: v for k, v in snap.items() if k != "run"}
+    return (json.dumps(srv._clean(core), allow_nan=False, separators=(",", ":")),
+            json.dumps(srv._clean({"run": snap.get("run", {})}), allow_nan=False, separators=(",", ":")))
 
 
 def snapshot_hash(snap):
@@ -713,6 +732,12 @@ def build_dist(dist, spec=None):
     sim = {"spec": spec, "limits": {k: SIM_LIMITS[k] for k in ("per_ip_hour", "per_day", "unfinished")}}
     inject = '<script>window.VPT_STATIC=true;window.VPT_EARLY=fetch("/data.json").catch(function(){return null});window.VPT_SIM=' + json.dumps(sim, separators=(",", ":")) + '</script>\n'
     idx = idx.replace(marker, inject + marker)
+    # version the asset URLs by content so a browser never keeps an old script or stylesheet after a deploy
+    def bust(m):
+        f = dist / m.group(2).lstrip("/")
+        v = hashlib.sha256(f.read_bytes()).hexdigest()[:8] if f.is_file() else "0"
+        return f'{m.group(1)}"{m.group(2)}?v={v}"'
+    idx = re.sub(r'((?:src|href)=)"(/[A-Za-z0-9_.-]+\.(?:js|css))"', bust, idx)
     (dist / "index.html").write_text(idx, "utf-8")
     (dist / "_worker.js").write_text(worker_js(spec), "utf-8")
     (dist / "_routes.json").write_text(ROUTES_JSON, "utf-8")
@@ -915,8 +940,8 @@ def model_tags(snap):
     tags = list(snap.get("cloud", {}).get("releases") or []) + [r["tag"] for r in snap.get("rounds", {}).get("rounds", [])]
     seen, out = set(), []
     for t in tags:
-        if t.startswith(("scratch-", "openai-")):
-            continue          # the Simulation Lab can only run the 1x round-N models for now
+        if t not in ("baseline", "latest") and not re.match(r"^round-\d+$", t):
+            continue          # the Simulation Lab can only run baseline and the 1x round-N models; other tags (openai, scratch, trailer) are not models it can use
         if t not in seen:
             seen.add(t)
             out.append(t)
@@ -1013,18 +1038,20 @@ def main(argv=None):
     raw = build_snapshot(root)
     wanted = raw_clips(raw)
     snap = rewrite_clips(copy.deepcopy(raw))          # every clip, for the scrub check and the local preview
-    payload = json.dumps(srv._clean(snap), allow_nan=False, separators=(",", ":"))
-    bad = check_dist(dist, payload)
+    payload, runs_payload = split_payloads(snap)
+    bad = check_dist(dist, payload) + check_text("data-runs.json", runs_payload)
     if bad:
         print("PUBLISH BLOCKED: scrubbed patterns found in the output:", file=sys.stderr)
         for b in bad[:20]:
             print("  " + b, file=sys.stderr)
         return 2
     (dist / "data.preview.json").write_text(payload)   # for local inspection only; removed before deploy
-    print(f"built dist/ ({len(payload) // 1024} KiB data, scrub check passed)")
+    (dist / "data-runs.preview.json").write_text(runs_payload)
+    print(f"built dist/ ({len(payload) // 1024} KiB data, {len(runs_payload) // 1024} KiB run charts, scrub check passed)")
     if args.build_only:
         return 0
     (dist / "data.preview.json").unlink()
+    (dist / "data-runs.preview.json").unlink()
 
     st = load_state(state_path)
     cf = CF()
@@ -1061,8 +1088,8 @@ def main(argv=None):
     uploaded = sync_clips(cf, st, wanted, state_path)
     uploaded60 = sync_clips(cf, st, raw_clips(raw, "clips60"), state_path, 60)
     snap = rewrite_clips(copy.deepcopy(raw), uploaded, uploaded60)
-    payload = json.dumps(srv._clean(snap), allow_nan=False, separators=(",", ":"))
-    bad = check_text("data.json", DATAURL_RE.sub("data:image/jpeg;base64,", payload))
+    payload, runs_payload = split_payloads(snap)
+    bad = check_text("data.json", DATAURL_RE.sub("data:image/jpeg;base64,", payload)) + check_text("data-runs.json", runs_payload)
     if bad:
         print("PUBLISH BLOCKED: " + bad[0], file=sys.stderr)
         return 2
@@ -1077,6 +1104,13 @@ def main(argv=None):
         print("data written to KV")
     else:
         print("data unchanged, KV not written")
+    rh = hashlib.sha256(json.dumps(snap.get("run", {}), sort_keys=True, default=str).encode()).hexdigest()
+    if args.force or st.get("rundata") != rh:
+        cf.kv_put(st["kv_ns"], "rundata", runs_payload)
+        count_write(st)
+        st["rundata"] = rh
+        save_state(state_path, st)
+        print("run charts written to KV")
     print("site: https://" + sub)
     return 0
 

@@ -25,6 +25,7 @@ VERCEL_JSON = {
     "cleanUrls": False,
     "rewrites": [
         {"source": "/data.json", "destination": f"{BACKEND}/data.json"},
+        {"source": "/data-runs.json", "destination": f"{BACKEND}/data-runs.json"},
         {"source": "/clips/:path*", "destination": f"{BACKEND}/clips/:path*"},
         {"source": "/sims/:path*", "destination": f"{BACKEND}/sims/:path*"},
         {"source": "/api/:path*", "destination": f"{BACKEND}/api/:path*"},
@@ -32,6 +33,8 @@ VERCEL_JSON = {
         {"source": "/trailer.mp4", "destination": f"{BACKEND}/trailer.mp4"},
         {"source": "/trailer-vertical.mp4", "destination": f"{BACKEND}/trailer-vertical.mp4"},
         {"source": "/trailer-60.mp4", "destination": f"{BACKEND}/trailer-60.mp4"},
+        {"source": "/trailer-cinematic.mp4", "destination": f"{BACKEND}/trailer-cinematic.mp4"},
+        {"source": "/trailer-cinematic-60.mp4", "destination": f"{BACKEND}/trailer-cinematic-60.mp4"},
         {"source": "/clips60/:path*", "destination": f"{BACKEND}/clips60/:path*"},
     ],
     "headers": [

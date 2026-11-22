@@ -41,7 +41,7 @@ function roundState(s) {
   }
   return out;
 }
-let dashMode = "", dashMetric = "win_rate", dashRel = null, dashSort = { k: "mode", dir: 1 };
+let dashMode = "", dashMetric = "return", dashRel = null, dashSort = { k: "mode", dir: 1 };
 const dashOpen = new Set();
 const PHASES = ["Setup", "Training", "Merge", "Evaluation"];
 
@@ -62,7 +62,8 @@ function timelineHtml(r, st) {
 }
 function stepsByRound(w) {
   const by = {};
-  w.workers.forEach(x => { if (x.round != null) by[x.round] = (by[x.round] || 0) + (x.env_steps || 0); });
+  if (w.totals) Object.entries(w.totals.by_round.vpt).forEach(([k, v]) => { by[k] = v; });
+  else w.workers.forEach(x => { if (x.round != null) by[x.round] = (by[x.round] || 0) + (x.env_steps || 0); });
   const keys = Object.keys(by).map(Number).sort((a, b) => a - b), mx = Math.max(1, ...keys.map(k => by[k]));
   if (!keys.length) return `<div class="empty">No worker has reported steps yet.</div>`;
   return `<div class="vbars">${keys.map(k => `<div class="vb" title="Round ${k}: ${by[k].toLocaleString()} steps"><b>${big(by[k])}</b><i style="height:${Math.max(2, by[k] / mx * 100)}%"></i><span>round ${k}</span></div>`).join("")}</div>`;
@@ -125,10 +126,10 @@ function modeCharts(r, mm) {
     return `<div class="card mini ${dashMode === k ? "sel" : ""}"><h4><button type="button" class="linkb" data-mf="${esc(k)}" title="Filter the dashboard to this mode">${modeIcon(k, 16)} ${esc(mm[k].name)}</button></h4><div class="big">${f === "win_rate" ? pct(last) : fmt(last, 3)}</div>${spark(vals, { lo, hi, w: 200, h: 46 })}<div class="mini-x">${r.rounds.map((x, i) => `<span title="${esc(x.tag)}: ${vals[i] == null ? "-" : f === "win_rate" ? pct(vals[i]) : fmt(vals[i], 3)}">${esc(x.tag.replace("round-", "r"))}</span>`).join("")}</div></div>`; }).join("")}</div>`;
 }
 function meanChart(r) {
-  const labels = {}, wr = [], rt = [];
-  r.rounds.forEach((x, i) => { labels[i] = x.tag; if (x.mean_win_rate != null) wr.push([i, x.mean_win_rate]); if (x.mean_return != null) rt.push([i, x.mean_return]); });
-  return `<div class="grid cols-2"><div class="card chart"><h3>Mean win rate by release</h3>${wr.length ? multiChart({ "win rate": wr }, "Mean win rate by release", { xLabels: labels, yRange: [0, 1], yFmt: v => Math.round(v * 100) + "%", noLegend: true }) : `<div class="empty">Nothing evaluated yet.</div>`}</div>
-  <div class="card chart"><h3>Mean return by release</h3>${rt.length ? multiChart({ "return": rt }, "Mean return by release", { xLabels: labels, noLegend: true }) : `<div class="empty">Nothing evaluated yet.</div>`}</div></div>`;
+  const labels = {}, wr = [], rt2 = [];
+  r.rounds.forEach((x, i) => { labels[i] = x.tag; if (x.mean_win_rate != null) wr.push([i, x.mean_win_rate]); if (x.mean_return != null) rt2.push([i, x.mean_return]); });
+  return `<div class="grid cols-2"><div class="card chart"><h3>Mean return by release</h3>${rt2.length ? multiChart({ "return": rt2 }, "Mean return by release", { xLabels: labels, yFmt: rtPlain, noLegend: true }) : `<div class="empty">Nothing evaluated yet.</div>`}</div>
+  <div class="card chart"><h3>Mean win rate by release</h3>${wr.length ? multiChart({ "win rate": wr }, "Mean win rate by release", { xLabels: labels, yRange: [0, 1], yFmt: v => Math.round(v * 100) + "%", noLegend: true }) : `<div class="empty">Nothing evaluated yet.</div>`}</div></div>`;
 }
 
 pages.dashboard = async () => {
@@ -169,14 +170,14 @@ pages.dashboard = async () => {
       <div class="card stat"><div class="k">Releases evaluated</div><div class="v">${r.rounds.length}</div><div class="s">${r.rounds.length ? esc(r.rounds.map(x => x.tag).join(", ")) : "none yet"}</div></div>
     </div>
     <h2 class="kick">Round timeline</h2><div class="card">${timelineHtml(vptRounds(), st)}</div>
-    <div class="grid cols-2" style="margin-top:14px"><div class="card chart"><h3>Environment steps per round</h3>${stepsByRound({ workers: w.workers.filter(x => x.track !== "scratch") })}</div><div class="card"><h3>Evaluation setup</h3><p class="upd" style="margin-top:0">Each release is evaluated on all ${modesPresent.length} modes, 3 games each, at a fixed opponent strength of 0.5, against the scripted arena bots. The baseline is the unmodified VPT model.</p></div></div>
+    <div class="grid cols-2" style="margin-top:14px"><div class="card chart"><h3>Environment steps per round</h3>${stepsByRound({ workers: w.workers.filter(x => x.track !== "scratch"), totals: w.totals })}</div><div class="card"><h3>Evaluation setup</h3><p class="upd" style="margin-top:0">Each release is evaluated on all ${modesPresent.length} modes, 3 games each, at a fixed opponent strength of 0.5, against the scripted arena bots. The baseline is the unmodified VPT model.</p></div></div>
     <h2 class="kick">Mode filter</h2>
     <div class="toolbar chips"><button class="chip ${dashMode ? "" : "on"}" data-mf="">All modes</button>${modesPresent.map(k => `<button class="chip ${dashMode === k ? "on" : ""}" data-mf="${esc(k)}">${esc(mm[k].name)}</button>`).join("")}</div>
     <h2 class="kick">Workers${dashMode ? ` playing ${esc(mm[dashMode].name)}` : ""}</h2>
     ${wgroup("vpt", "VPT track (r* jobs, pretrained model)")}${wgroup("scratch", "From-scratch track (s* jobs, no pretraining)")}
     ${frames.length ? "" : `<p class="upd">Workers write a frame of each simulator every 3 minutes from round 2 onward; the thumbnails above fill in then.</p>`}
     <h2 class="kick">Releases compared</h2>${meanChart(vptRounds())}
-    <div class="toolbar" style="margin-top:14px"><span class="seg"><button class="chip ${dashMetric === "win_rate" ? "on" : ""}" data-metric="win_rate">Win rate</button><button class="chip ${dashMetric === "return" ? "on" : ""}" data-metric="return">Return</button></span><span class="upd" style="margin:0">per mode, across releases. Click a mode to filter.</span></div>
+    <div class="toolbar" style="margin-top:14px"><span class="seg"><button class="chip ${dashMetric === "return" ? "on" : ""}" data-metric="return">Return</button><button class="chip ${dashMetric === "win_rate" ? "on" : ""}" data-metric="win_rate">Win rate</button></span><span class="upd" style="margin:0">per mode, across releases. Click a mode to filter.</span></div>
     ${modeCharts(vptRounds(), mm)}
     <h2 class="kick">Ours, from scratch and OpenAI</h2><div id="cmpbox">${compareHtml(r, mm)}</div>
     <h2 class="kick">Evaluation table</h2>

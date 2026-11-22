@@ -75,7 +75,7 @@ pages.simulate = async args => {
   if (!S) { view.innerHTML = `<h1>Simulate</h1><div class="empty">The Simulation Lab runs on the public site, where the cloud runner is connected.</div>`; return; }
   if (args && args[0]) return simStatus(args[0], S);
   const [mm, cloud] = await Promise.all([modeMap(), api("/api/cloud")]);
-  const models = ["baseline", "latest", ...cloud.releases.filter(t => t !== "baseline" && t !== "latest")];
+  const models = ["baseline", "latest", ...cloud.releases.filter(t => /^(round-\d+|scratch-\d+|openai-[a-z0-9-]+)$/.test(t))];
   const modelOpts = sel => models.map(x => `<option value="${esc(x)}" ${x === sel ? "selected" : ""} ${/^(scratch|openai)-/.test(x) ? "disabled" : ""}>${esc(x === "latest" ? "latest (newest round)" : /^(scratch|openai)-/.test(x) ? x + " (" + (/^openai-/.test(x) ? "OpenAI, " : "from scratch, ") + "not runnable yet)" : x)}</option>`).join("");
   let sim = clone(S.defaults), angles = defaultAngles(sim.opponents.length), presetOn = "sword";
   try { const c = sessionStorage.getItem("vpt-sim-clone"); if (c) { sim = JSON.parse(c); sessionStorage.removeItem("vpt-sim-clone"); angles = defaultAngles(sim.opponents.length); presetOn = ""; } } catch (e) { /* ignore */ }
@@ -167,7 +167,7 @@ pages.simulate = async args => {
 const STEPS = [["queued", "Queued"], ["dispatched", "Sent to a runner"], ["running", "Running"], ["done", "Done"]];
 async function simStatus(id, S) {
   const mm = await modeMap(), cloud = await api("/api/cloud");
-  const models = ["baseline", "latest", ...cloud.releases.filter(t => t !== "baseline" && t !== "latest")];
+  const models = ["baseline", "latest", ...cloud.releases.filter(t => /^(round-\d+|scratch-\d+|openai-[a-z0-9-]+)$/.test(t))];
   view.innerHTML = `<nav class="crumb"><a href="#/simulate">Simulate</a> / <span class="mono">${esc(id)}</span></nav><div id="sbody"><div class="skel sk-box"></div></div><h2 class="kick">Recent simulations</h2><div id="recent"></div>`;
   let last = null, list = [];
   const draw = d => {

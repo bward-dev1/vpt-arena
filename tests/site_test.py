@@ -404,6 +404,25 @@ class TracksTest(unittest.TestCase):
         self.assertTrue(errs)
 
 
+class SnapshotTotalsTest(unittest.TestCase):
+    def test_totals_cover_every_worker_and_payload_splits(self):
+        from tools import publish_site as ps
+        ws = [{"track": "vpt", "round": r, "env_steps": 100 + r} for r in range(5) for _ in range(12)] + [{"track": "scratch", "round": 0, "env_steps": 7}] * 6
+        t = ps.worker_totals(ws)
+        self.assertEqual(t["by_round"]["vpt"]["0"], 1200)          # round 0 is still counted when the visible list is capped
+        self.assertEqual(t["by_track"]["scratch"], 42)
+        self.assertEqual(t["steps_total"], sum(w["env_steps"] for w in ws))
+        self.assertEqual(len(ps._cap_workers(ws, per_track=48)), 48 + 6)
+        core, runs = ps.split_payloads({"overview": {}, "run": {"r0-w01": {"charts": []}}})
+        self.assertNotIn("r0-w01", core)
+        self.assertIn("r0-w01", runs)
+
+    def test_model_list_is_only_runnable_models(self):
+        from tools import publish_site as ps
+        snap = {"cloud": {"releases": ["round-4", "trailer", "openai-rl-2x", "scratch-1", "baseline"]}, "rounds": {"rounds": [{"tag": "round-3"}]}}
+        self.assertEqual(ps.model_tags(snap), ["round-4", "baseline", "round-3"])
+
+
 class EmptyRootTest(unittest.TestCase):
     def test_empty_root(self):
         tmp = Path(tempfile.mkdtemp(prefix="vpt-site-empty-"))
@@ -468,10 +487,10 @@ class SimLabTest(unittest.TestCase):
         self.assertIn(json.dumps(self.spec["limits"], separators=(",", ":"))[:40], js)
         self.assertIn('"opponents_total_max":6', js)
         self.assertIn("duels_sword", js)
-        for route in ("/api/sim", "/api/sims", "\\/sims\\/", "\\/clips(60)?", "_60", "simindex", "simreq:", "simstat:", "simclip:", "simclip60:", "trailer:main", "/trailer.mp4", "/live/status.json"):
+        for route in ("/api/sim", "/api/sims", "\\/sims\\/", "\\/clips(60)?", "_60", "simindex", "simreq:", "simstat:", "simclip:", "simclip60:", "trailer:main", "/trailer.mp4", "/trailer-cinematic.mp4", "trailer:cinematic", "trailer:cinematic60", "/trailer-cinematic-60.mp4", "/live/status.json"):
             self.assertIn(route, js)
         routes = json.loads(self.ps.ROUTES_JSON)["include"]
-        for r in ("/data.json", "/api/*", "/clips/*", "/clips60/*", "/sims/*", "/live/*", "/trailer*"):
+        for r in ("/data.json", "/data-runs.json", "/api/*", "/clips/*", "/clips60/*", "/sims/*", "/live/*", "/trailer*"):
             self.assertIn(r, routes)
         d = self.tmp_dist()
         self.assertIn("VPT_SIM", (d / "index.html").read_text())

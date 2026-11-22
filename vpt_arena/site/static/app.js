@@ -33,11 +33,16 @@ async function snapshot(force) {
   })().finally(() => { snapP = null; });
   return snapP;
 }
+let runsCache = null, runsT = 0;
+async function runData() {
+  if (!runsCache || Date.now() - runsT > 60000) { const r = await fetch("/data-runs.json"); if (!r.ok) throw new Error("no run data"); runsCache = await r.json(); runsT = Date.now(); }
+  return runsCache;
+}
 async function api(path) {
   if (STATIC) {
     const s = await snapshot(), name = path.replace(/^\/api\//, "");
     stamp(s.generated);
-    if (name.startsWith("run/")) { const r = (s.run || {})[decodeURIComponent(name.slice(4))]; if (!r) throw new Error("no such run"); return r; }
+    if (name.startsWith("run/")) { const rd = await runData(), r = (rd.run || {})[decodeURIComponent(name.slice(4))]; if (!r) throw new Error("no such run"); return r; }
     const v = s[name];
     if (v === undefined) throw new Error("no such data " + name);
     return v;
@@ -232,9 +237,9 @@ function clipHtml(c, title) {
   return `<figure class="clipfig"><div class="clip vbox" data-u30="${esc(c.url)}" data-u60="${esc(c.url60 || "")}"><video controls muted playsinline preload="metadata" src="${esc(clipSrc(u))}" aria-label="${esc(title)}"></video><div class="vtools">${fpsBtn(c.url60)}${fsBtn}</div></div><figcaption><span class="tag">${esc(c.tag)}</span> ${esc(title)}</figcaption></figure>`;
 }
 /* Card clip: first frame shown, plays on hover or tap, loops while active. */
-function hoverClip(url, label, icon, url60) {
+function hoverClip(url, label, icon, url60, lazy) {
   const u = getFps() === 60 && url60 ? url60 : url;
-  return `<div class="hclip vbox" data-play data-u30="${esc(url)}" data-u60="${esc(url60 || "")}"><video muted loop playsinline preload="metadata" src="${esc(clipSrc(u))}" aria-label="${esc(label)}"></video><span class="hc-ic">${icon || ""}</span><button type="button" class="hc-btn" aria-label="Play ${esc(label)}"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg></button><div class="vtools">${fpsBtn(url60)}${fsBtn}</div></div>`;
+  return `<div class="hclip vbox" data-play data-u30="${esc(url)}" data-u60="${esc(url60 || "")}"><video muted loop playsinline preload="${lazy ? "none" : "metadata"}" ${lazy ? "data-src" : "src"}="${esc(clipSrc(u))}" aria-label="${esc(label)}"></video><span class="hc-ic">${icon || ""}</span><button type="button" class="hc-btn" aria-label="Play ${esc(label)}"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg></button><div class="vtools">${fpsBtn(url60)}${fsBtn}</div></div>`;
 }
 const noClip = (icon, text = "No clip yet") => `<div class="hclip empty-clip"><span class="hc-ic big">${icon || ""}</span><span class="hc-none">${esc(text)}</span></div>`;
 let lastBox = null;

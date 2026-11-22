@@ -11,6 +11,25 @@ function loadHlsJs() {
   });
   return hlsJsP;
 }
+/* Play an HLS stream in a video element: natively where supported, otherwise through hls.js. Returns a stop function. */
+function playHls(video, url, onFail) {
+  let dead = false, hls = null;
+  const fail = () => { if (!dead) onFail(); };
+  video.onerror = fail;
+  if (video.canPlayType("application/vnd.apple.mpegurl")) {
+    video.src = url; video.play().catch(() => {});
+    return () => { dead = true; video.onerror = null; video.removeAttribute("src"); video.load(); };
+  }
+  loadHlsJs().then(Hls => {
+    if (dead) return;
+    if (!Hls.isSupported()) return fail();
+    hls = new Hls({ liveSyncDurationCount: 3, maxBufferLength: 12, manifestLoadingMaxRetry: 2, levelLoadingMaxRetry: 2, fragLoadingMaxRetry: 2 });
+    hls.on(Hls.Events.ERROR, (e, d) => { if (d.fatal) fail(); });
+    hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
+    hls.loadSource(url); hls.attachMedia(video);
+  }).catch(fail);
+  return () => { dead = true; if (hls) hls.destroy(); video.onerror = null; video.removeAttribute("src"); };
+}
 function keyEl(label, on, cls = "") { return `<div class="key ${cls} ${on ? "on" : ""}">${label}</div>`; }
 function keysHtml(d, compact) {
   const st = d.status || {}, a = st.last_action || {}, cam = Array.isArray(a.camera) ? a.camera : [0, 0], on = !!d.online;
