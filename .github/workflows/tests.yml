@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     # only training/sim code; site, docs and workflow edits don't need the 20-minute suite
-    paths: ["vpt_arena/**", "cloud/**", "tests/**", "configs/**", "!vpt_arena/site/**"]
+    paths: ["vpt_arena/**", "cloud/**", "tests/**", "configs/**", "!vpt_arena/site/**", "!configs/compute.json"]
 concurrency: {group: tests, cancel-in-progress: true}
 jobs:
   tests:
