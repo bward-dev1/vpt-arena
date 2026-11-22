@@ -96,6 +96,8 @@ jobs:
       - name: Next round
         run: |
           N=$(( ${{ inputs.round }} + 1 ))
-          if [ "$N" -lt "${{ inputs.max_rounds }}" ]; then
+          CAP=$(gh api "repos/${{ github.repository }}/contents/configs/compute.json?ref=main" -q .content | base64 -d | python3 -c "import json,sys;print(json.load(sys.stdin)['vpt_max_rounds'])" || echo 0)
+          echo "compute cap vpt_max_rounds=$CAP"
+          if [ "$N" -lt "${{ inputs.max_rounds }}" ] && [ "$N" -lt "$CAP" ]; then
             gh workflow run rl-round.yml -f round=$N -f weights_tag=round-${{ inputs.round }} -f minutes=${{ inputs.minutes }} -f max_rounds=${{ inputs.max_rounds }}
           fi

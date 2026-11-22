@@ -1,0 +1,6 @@
+{
+  "_note": "Read live from main by the workflows before they chain another run. Lower a number (or set false) to free compute; running jobs finish, nothing new starts.",
+  "vpt_max_rounds": 5,
+  "scratch_max_rounds": 2,
+  "live_stream": true
+}

@@ -47,4 +47,7 @@ jobs:
           xvfb-run -a -s "-screen 0 1024x768x24" python cloud/live_stream.py --weights w/model.weights --tag "$TAG" --minutes "${{ inputs.minutes }}" --out live
       - name: Next stream
         if: ${{ !cancelled() }}
-        run: gh workflow run live-stream.yml -f minutes=${{ inputs.minutes }}
+        env: {GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}"}
+        run: |
+          ON=$(gh api "repos/${{ github.repository }}/contents/configs/compute.json?ref=main" -q .content | base64 -d | python3 -c "import json,sys;print(str(json.load(sys.stdin)['live_stream']).lower())" || echo true)
+          if [ "$ON" = "true" ]; then gh workflow run live-stream.yml -f minutes=${{ inputs.minutes }}; else echo "live stream off in configs/compute.json"; fi
